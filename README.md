@@ -1,23 +1,37 @@
+# ResearchLoop AI
+
 <p align="center">
   <img src="assets/research-loop-ai-logo.svg" alt="Research Loop AI logo" width="180" />
 </p>
 
-<h1 align="center">Research Loop AI</h1>
-
-<p align="center"><strong>Autonomous, evidence-driven research that discovers, verifies, analyzes, and tracks information continuously.</strong></p>
+<p align="center">
+  <strong>Research Loop AI is an autonomous, evidence-driven research platform that continuously discovers, analyzes, verifies, and summarizes information from multiple sources.</strong>
+</p>
 
 <p align="center">
   <a href="https://deepnayan832.github.io/researchloop-ai/">🌐 Live Website</a> ·
   <a href="https://github.com/deepnayan832/researchloop-ai">💻 GitHub Repository</a>
 </p>
 
-Research Loop AI is an autonomous, evidence-driven research platform for continuously discovering, analyzing, verifying, and summarizing changing information. It turns complex research tasks into repeatable AI-powered loops that combine web research, evidence extraction, adversarial critique, gap detection, targeted retries, and final quality gating.
+Research Loop AI is designed to turn complex research tasks into a <strong>repeatable AI-powered workflow</strong> — from finding relevant information and tracking changes to cross-checking sources, analyzing trends, and generating concise, actionable insights.
 
-Built for market intelligence, company research, AI and technology monitoring, business research, and other evidence-heavy workflows, Research Loop AI is designed to separate verified evidence from inference, expose uncertainty instead of inventing facts, and preserve every run for inspection.
+### What it does
 
-**Direct project link:** https://github.com/deepnayan832/researchloop-ai
+- 🔎 <strong>Deep Research</strong> — Searches and collects information from multiple sources.
+- 🔄 <strong>Continuous Research Loops</strong> — Re-runs research automatically on a schedule.
+- ✅ <strong>Source Verification</strong> — Cross-checks important information instead of relying on a single source.
+- 🧠 <strong>AI Analysis</strong> — Identifies trends, changes, opportunities, risks, and key insights.
+- 📊 <strong>Structured Intelligence</strong> — Converts raw information into clear reports and decision-ready outputs.
+- ⚡ <strong>Automated Monitoring</strong> — Keeps track of topics, markets, companies, technologies, and other changing information.
+- 💾 <strong>Research Memory</strong> — Stores previous findings so new research can focus on what has changed.
 
-The bundled examples are static demo records. They are labeled as examples and are never mixed into provider evidence or counted as live runs.
+### Built for
+
+<strong>Market Intelligence • Business Research • AI & Technology • Company Analysis • News Monitoring • Competitive Research • Trend Detection</strong>
+
+<blockquote>
+  <strong>Research Loop AI — Research once. Verify deeply. Track continuously. Act on better information.</strong>
+</blockquote>
 
 ## Architecture
 
