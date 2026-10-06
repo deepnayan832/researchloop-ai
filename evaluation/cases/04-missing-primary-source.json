@@ -1,0 +1,8 @@
+{
+  "id": "missing-primary-source",
+  "kind": "missing-primary-source",
+  "expected": {
+    "retryRequired": true,
+    "missingPrimary": true
+  }
+}

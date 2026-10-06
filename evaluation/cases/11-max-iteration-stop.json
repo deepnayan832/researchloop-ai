@@ -1,0 +1,8 @@
+{
+  "id": "max-iteration-stop",
+  "kind": "max-iteration-stop",
+  "expected": {
+    "stopped": true,
+    "maximum": 4
+  }
+}

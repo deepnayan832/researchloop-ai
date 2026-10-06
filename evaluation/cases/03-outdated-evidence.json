@@ -1,0 +1,7 @@
+{
+  "id": "outdated-evidence",
+  "kind": "outdated-evidence",
+  "expected": {
+    "stale": true
+  }
+}

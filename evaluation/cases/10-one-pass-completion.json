@@ -1,0 +1,7 @@
+{
+  "id": "one-pass-completion",
+  "kind": "one-pass-completion",
+  "expected": {
+    "qualityGatePassed": true
+  }
+}

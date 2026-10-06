@@ -1,0 +1,8 @@
+{
+  "id": "unsupported-causal-claim",
+  "kind": "unsupported-causal-claim",
+  "expected": {
+    "criticalErrors": 1,
+    "qualityGatePassed": false
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "duplicate-evidence",
+  "kind": "duplicate-evidence",
+  "expected": {
+    "groups": 1,
+    "sourceCount": 2,
+    "distinctPublishers": 2
+  }
+}

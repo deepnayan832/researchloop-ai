@@ -1,0 +1,8 @@
+{
+  "id": "missing-evidence",
+  "kind": "missing-evidence",
+  "expected": {
+    "retryRequired": true,
+    "qualityGatePassed": false
+  }
+}

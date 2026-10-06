@@ -1,7 +1,5 @@
 const MAX_ITERATIONS = 4;
 const PASS_SCORE = 85;
-const RUNS_KEY = 'researchloop-runs-v1';
-const WATCHLIST_KEY = 'researchloop-watchlist-v1';
 
 function makeDemoRun(id, label, query, exchange) {
   return {
@@ -39,11 +37,15 @@ const DEMO_RUN = DEMO_RUNS[0];
 
 const state = {
   activeView: 'overview',
-  runs: loadStoredRuns(),
-  watchlist: loadWatchlist(),
+  runs: [],
+  watchlist: [],
+  providerHealth: {},
+  backendAvailable: false,
   selectedRunId: null,
+  selectedRunDetail: null,
   isRunning: false,
-  toastTimer: null
+  toastTimer: null,
+  eventSource: null
 };
 
 const content = document.getElementById('app-content');
@@ -52,40 +54,6 @@ const toastNode = document.getElementById('toast');
 const sidebar = document.getElementById('sidebar');
 const mobileMenu = document.getElementById('mobile-menu');
 const backdrop = document.getElementById('mobile-backdrop');
-
-function loadStoredRuns() {
-  try {
-    const value = JSON.parse(localStorage.getItem(RUNS_KEY) || '[]');
-    if (!Array.isArray(value)) return [];
-    return value.map(function (run) {
-      if (run.status === 'running') {
-        run.status = 'limited';
-        run.stage = 'finalize';
-        run.unresolvedGaps = Math.max(1, run.unresolvedGaps || 0);
-      }
-      return run;
-    });
-  } catch (error) {
-    return [];
-  }
-}
-
-function loadWatchlist() {
-  try {
-    const value = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
-    return Array.isArray(value) ? value : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function saveRuns() {
-  localStorage.setItem(RUNS_KEY, JSON.stringify(state.runs));
-}
-
-function saveWatchlist() {
-  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(state.watchlist));
-}
 
 function escapeHtml(value) {
   return String(value == null ? '' : value)
@@ -125,6 +93,7 @@ function getRun(id) {
   const demo = DEMO_RUNS.find(function (run) { return run.id === id; });
   if (demo) return demo;
   if (!id) return DEMO_RUN;
+  if (state.selectedRunDetail && state.selectedRunDetail.id === id) return state.selectedRunDetail;
   return state.runs.find(function (run) { return run.id === id; }) || DEMO_RUN;
 }
 
@@ -149,12 +118,16 @@ function statusText(run) {
   if (run.isDemo) return 'Demo only';
   if (run.status === 'running') return 'Running';
   if (run.status === 'limited') return 'Limited';
-  return 'Not verified';
+  if (run.status === 'failed') return 'Failed';
+  if (run.status === 'completed') return 'Completed';
+  return 'Unknown';
 }
 
 function statusClass(run) {
   if (run.isDemo) return 'status-demo';
   if (run.status === 'running') return 'status-running';
+  if (run.status === 'completed') return 'status-completed';
+  if (run.status === 'failed') return 'status-failed';
   return 'status-limited';
 }
 
@@ -179,8 +152,10 @@ function setView(view) {
 }
 
 function stepIndex(run) {
+  const stage = run.stage || 'finalize';
+  if (stage === 'evidence' || stage === 'analysis' || stage === 'retry') return 1;
   const stages = ['plan', 'research', 'critique', 'finalize'];
-  return Math.max(0, stages.indexOf(run.stage || 'finalize'));
+  return Math.max(0, stages.indexOf(stage));
 }
 
 function renderProcess(run) {
@@ -200,20 +175,22 @@ function renderProcess(run) {
 
 function timelineMarkup(run) {
   const stages = [
-    { key: 'plan', title: 'Plan', fallback: 'Research questions prepared.' },
-    { key: 'research', title: 'Research', fallback: 'No live source provider is connected.' },
-    { key: 'critique', title: 'Critique', fallback: 'Evidence gaps are reviewed.' },
-    { key: 'finalize', title: 'Finalize', fallback: 'Report prepared with limitations.' }
+    { key: 'plan', title: 'Plan', matches: ['plan'], fallback: 'Waiting for the planner.' },
+    { key: 'research', title: 'Research', matches: ['research', 'evidence', 'analysis', 'retry'], fallback: 'Waiting for evidence retrieval.' },
+    { key: 'critique', title: 'Critique', matches: ['critique'], fallback: 'Waiting for the critic.' },
+    { key: 'finalize', title: 'Finalize', matches: ['finalize'], fallback: 'Waiting for the quality gate.' }
   ];
   const current = stepIndex(run);
   return '<ol class="timeline">' + stages.map(function (item, index) {
-    const traceItem = (run.trace || []).find(function (entry) { return entry.stage === item.key; });
-    const done = run.status !== 'running' ? index <= current : index < current;
+    const traceItem = (run.trace || []).slice().reverse().find(function (entry) { return item.matches.includes(entry.stage); });
+    const isDone = traceItem && ['completed', 'limited', 'skipped'].includes(traceItem.status);
+    const done = run.isDemo ? run.status !== 'running' : Boolean(isDone || (run.status === 'running' && index < current));
     const active = run.status === 'running' && index === current;
     const nodeClass = done ? 'done' : active ? 'current' : '';
     const mark = done ? icon('check') : '';
     const detail = traceItem ? traceItem.detail : item.fallback;
-    return '<li class="timeline-item"><span class="timeline-node ' + nodeClass + '">' + mark + '</span><div class="timeline-copy"><strong>' + item.title + (run.status === 'running' && active ? ' in progress' : '') + '</strong><span>' + escapeHtml(detail) + '</span></div><span class="timeline-time">' + (traceItem ? (run.isDemo ? 'Example' : 'Logged') : '') + '</span></li>';
+    const title = traceItem && traceItem.title ? traceItem.title : item.title;
+    return '<li class="timeline-item"><span class="timeline-node ' + nodeClass + '">' + mark + '</span><div class="timeline-copy"><strong>' + escapeHtml(title) + (run.status === 'running' && active ? ' in progress' : '') + '</strong><span>' + escapeHtml(detail) + '</span></div><span class="timeline-time">' + (traceItem ? (run.isDemo ? 'Example' : 'Logged') : '') + '</span></li>';
   }).join('') + '</ol>';
 }
 
@@ -227,11 +204,16 @@ function runRow(run) {
 function renderRunTable(runs, showFooter) {
   const rows = runs.map(runRow).join('');
   const empty = '<tr><td class="table-empty" colspan="5">No research runs match this view.</td></tr>';
-  return '<div class="table-scroll"><table class="data-table run-table"><thead><tr><th>Research item</th><th>Research question</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div>' + (showFooter ? '<div class="panel-table-foot"><span>Demo example and local runs</span><span>' + runs.length + ' item' + (runs.length === 1 ? '' : 's') + '</span></div>' : '');
+  return '<div class="table-scroll"><table class="data-table run-table"><thead><tr><th>Research item</th><th>Research question</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div>' + (showFooter ? '<div class="panel-table-foot"><span>Examples and server-saved runs</span><span>' + runs.length + ' item' + (runs.length === 1 ? '' : 's') + '</span></div>' : '');
 }
 
-function renderNotice(compact) {
-  return '<div class="demo-notice ' + (compact ? 'compact' : '') + '">' + icon('info') + '<div><strong>Demo report · No live exchange data connected</strong><p>This preview does not check exchange filings, company disclosures, market prices, or financial statements. Results are not investment advice.</p></div></div>';
+function renderNotice(compact, run) {
+  const isDemo = !run || run.isDemo;
+  const title = isDemo ? 'Demo report · No live exchange data connected' : (run.status === 'completed' ? 'Source-backed report · Review evidence and limitations' : 'Limited report · Evidence or provider gaps remain');
+  const detail = isDemo
+    ? 'This example did not check exchange filings, company disclosures, market prices, or financial statements. It is not investment advice.'
+    : 'Current data can be incomplete or delayed. Open each cited source and review the quality gate before relying on a claim. This is not investment advice.';
+  return '<div class="demo-notice ' + (compact ? 'compact' : '') + '">' + icon('info') + '<div><strong>' + title + '</strong><p>' + detail + '</p></div></div>';
 }
 
 function renderOverview() {
@@ -243,44 +225,54 @@ function renderOverview() {
     '<label class="query-control"><span class="sr-only">Research question</span>' + icon('search') + '<textarea id="research-query" name="query" minlength="12" required placeholder="Ask about a company, market move, or fundamental trend…"></textarea></label>' +
     '<label class="query-select-wrap"><span class="sr-only">Exchange</span><select class="query-select" name="exchange"><option value="NSE">NSE</option><option value="BSE">BSE</option><option value="NSE / BSE">NSE / BSE</option></select></label>' +
     '<button class="button button-primary" type="submit"' + disabled + '>' + buttonText + icon('arrow') + '</button></form>' +
-    '<div class="query-footnote"><span>Research is in demo mode. Connect a source provider to verify live claims.</span><span class="query-error" id="query-error" aria-live="polite"></span></div></section>' +
+    '<div class="query-footnote"><span>' + (state.backendAvailable ? 'Runs and watchlist are saved in SQLite. Provider availability is shown in Settings.' : 'Backend is unavailable. Start the local server to run research.') + '</span><span class="query-error" id="query-error" aria-live="polite"></span></div></section>' +
     renderProcess(latest) +
     '<section class="overview-grid"><div class="panel"><div class="panel-head"><h2 class="section-title">Recent research runs</h2><button class="button button-quiet" type="button" data-view="runs">View all runs ' + icon('arrow') + '</button></div>' + renderRunTable(runs.slice(0, 4), true) + '</div>' +
     '<aside class="panel run-panel"><div class="panel-head"><h2 class="section-title">Latest run</h2><span class="panel-head-meta">' + (latest.isDemo ? 'Example' : displayDate(latest)) + '</span></div><div class="panel-content">' +
     '<div class="run-detail-head"><div><strong>' + (latest.isDemo ? escapeHtml(latest.label) : 'Research request') + '</strong><span>' + escapeHtml(latest.exchange || 'NSE / BSE') + ' · ' + statusText(latest) + '</span></div><span class="run-detail-date">' + (latest.isDemo ? 'No live data' : displayTime(latest)) + '</span></div>' +
-    '<p class="run-question">' + escapeHtml(latest.query) + '</p><div class="iteration-label"><span>Iteration ' + (latest.iterationCount || 1) + ' of ' + MAX_ITERATIONS + '</span><span>' + (latest.status === 'running' ? 'Research in progress' : latest.isDemo ? 'Example only' : 'Finalized with limitations') + '</span></div>' +
+    '<p class="run-question">' + escapeHtml(latest.query) + '</p><div class="iteration-label"><span>Iteration ' + (latest.iterationCount == null ? 1 : latest.iterationCount) + ' of ' + MAX_ITERATIONS + '</span><span>' + (latest.status === 'running' ? 'Research in progress' : latest.isDemo ? 'Example only' : String(latest.status).toUpperCase()) + '</span></div>' +
     timelineMarkup(latest) + '<button class="button button-primary panel-full-button" type="button" data-open-report="' + escapeHtml(latest.id) + '">Open report ' + icon('arrow') + '</button></div></aside></section>';
 }
 
 function renderRunsPage() {
   const runs = getAllRuns();
-  return '<div class="page-head"><div><h1>Research runs</h1><p>Review the requests and run traces saved in this browser.</p></div><button class="button button-primary" type="button" data-new-research>' + icon('plus') + ' New research</button></div>' +
-    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Local preview</strong><p>Live exchange and company sources are not connected. New requests finish with explicit data limitations.</p></div></div>' +
-    '<section class="panel list-panel"><div class="list-toolbar"><div class="toolbar"><label class="search-control">' + icon('search') + '<span class="sr-only">Search runs</span><input type="search" id="run-search" placeholder="Search research questions" /></label><select class="filter-select" id="run-filter" aria-label="Filter runs"><option value="all">All runs</option><option value="limited">Limited</option><option value="demo">Demo only</option></select></div><span class="result-count" id="run-result-count">' + runs.length + ' items</span></div><div id="runs-table">' + renderRunTable(runs, false) + '</div></section>';
+  return '<div class="page-head"><div><h1>Research runs</h1><p>Review server-saved research requests, source counts, quality scores, and run traces.</p></div><button class="button button-primary" type="button" data-new-research>' + icon('plus') + ' New research</button></div>' +
+    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Server-saved research runs</strong><p>Examples are marked as demo. Live runs show their provider gaps, source records, and status.</p></div></div>' +
+    '<section class="panel list-panel"><div class="list-toolbar"><div class="toolbar"><label class="search-control">' + icon('search') + '<span class="sr-only">Search runs</span><input type="search" id="run-search" placeholder="Search research questions" /></label><select class="filter-select" id="run-filter" aria-label="Filter runs"><option value="all">All runs</option><option value="completed">Completed</option><option value="limited">Limited</option><option value="failed">Failed</option><option value="demo">Demo only</option></select></div><span class="result-count" id="run-result-count">' + runs.length + ' items</span></div><div id="runs-table">' + renderRunTable(runs, false) + '</div></section>';
 }
 
 function renderReportsPage() {
-  const reports = getAllRuns().filter(function (run) { return run.isDemo || run.status === 'limited'; });
+  const reports = getAllRuns().filter(function (run) { return run.isDemo || run.status !== 'running'; });
   return '<div class="page-head"><div><h1>Reports</h1><p>Final research summaries with evidence status, gaps, and run details.</p></div><button class="button button-secondary" type="button" data-export-list>' + icon('download') + ' Export run list</button></div>' +
-    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Evidence status is explicit</strong><p>Reports in this preview contain no verified market evidence because live sources are not connected.</p></div></div>' +
+    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Evidence status is explicit</strong><p>Each server report shows its actual run status, source records, citations, and unresolved gaps. Demo examples remain clearly marked.</p></div></div>' +
     '<section class="panel list-panel"><div class="panel-head"><h2 class="section-title">Available reports</h2><span class="panel-head-meta">' + reports.length + ' report' + (reports.length === 1 ? '' : 's') + '</span></div>' + renderRunTable(reports, true) + '</section>';
 }
 
 function renderWatchlist() {
   const rows = state.watchlist.map(function (item, index) {
-    return '<tr><td><span class="watchlist-symbol">' + escapeHtml(item.symbol) + '</span></td><td>' + escapeHtml(item.exchange) + '</td><td><span class="status-chip status-demo">Data not available</span></td><td><button class="button button-quiet" type="button" data-remove-watch="' + index + '">Remove</button></td></tr>';
+    return '<tr><td><span class="watchlist-symbol">' + escapeHtml(item.symbol) + '</span></td><td>' + escapeHtml(item.exchange) + '</td><td><span class="status-chip status-demo">Listing not verified</span></td><td><button class="button button-quiet" type="button" data-remove-watch="' + index + '">Remove</button></td></tr>';
   }).join('');
-  const table = state.watchlist.length ? '<div class="table-scroll"><table class="data-table watchlist-table"><thead><tr><th>Symbol</th><th>Exchange</th><th>Market data</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="panel-empty-state watchlist-empty"><span class="empty-icon">' + icon('chart') + '</span><strong>Your watchlist is empty</strong><p>Add a ticker to keep it in this browser. Live prices and classifications are not available in demo mode.</p></div>';
+  const table = state.watchlist.length ? '<div class="table-scroll"><table class="data-table watchlist-table"><thead><tr><th>Symbol</th><th>Exchange</th><th>Listing status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="panel-empty-state watchlist-empty"><span class="empty-icon">' + icon('chart') + '</span><strong>Your watchlist is empty</strong><p>Add a symbol to save it in the server database. Exchange listing and market data are not implied.</p></div>';
   return '<div class="page-head"><div><h1>Watchlist</h1><p>Keep research targets in one place. Market data requires a live source connection.</p></div><form class="watchlist-form" id="watchlist-form"><label class="sr-only" for="watch-symbol">Company symbol</label><input id="watch-symbol" name="symbol" maxlength="20" placeholder="Add NSE / BSE symbol" required /><button class="button button-primary" type="submit">' + icon('plus') + ' Add symbol</button></form></div>' +
-    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Watchlist is saved locally</strong><p>Symbols are stored in this browser only. No company lookup or exchange validation is performed.</p></div></div>' +
+    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Watchlist is server-saved</strong><p>Symbols persist in SQLite. Adding a symbol does not verify that it is listed on NSE or BSE.</p></div></div>' +
     '<section class="panel list-panel"><div class="panel-head"><h2 class="section-title">Saved symbols</h2><span class="panel-head-meta">' + state.watchlist.length + ' item' + (state.watchlist.length === 1 ? '' : 's') + '</span></div>' + table + '</section>';
+}
+
+function providerRow(title, key) {
+  const provider = state.providerHealth[key];
+  const status = typeof provider === 'string' ? provider : state.backendAvailable ? 'missing' : 'error';
+  const detail = state.providerHealth[key + '_detail'] || (state.backendAvailable ? 'Provider state is unavailable.' : 'Research backend is unavailable.');
+  const className = status === 'configured' || status === 'available' || status === 'healthy' ? 'status-completed' : 'status-limited';
+  return '<div class="config-row"><div class="config-copy"><strong>' + escapeHtml(title) + '</strong><span>' + escapeHtml(detail) + '</span></div><span class="status-chip ' + className + '">' + escapeHtml(status) + '</span></div>';
 }
 
 function renderSettings() {
   return '<div class="page-head"><div><h1>Settings</h1><p>Research policy and source priorities from the ResearchLoop prompt.</p></div></div>' +
-    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Settings shown for the preview</strong><p>These values describe the intended workflow. They do not configure a live research provider.</p></div></div>' +
+    '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Server-side provider status</strong><p>Secrets remain in the server environment. Configure providers in .env and restart the server; this page never displays API keys.</p></div></div>' +
     '<div class="config-grid"><section class="panel"><div class="panel-head"><h2 class="section-title">Loop controls</h2></div><div class="config-row"><div class="config-copy"><strong>Maximum iterations</strong><span>Stop after this many plan, research, critique, and retry cycles.</span></div><span class="config-value">' + MAX_ITERATIONS + '</span></div><div class="config-row"><div class="config-copy"><strong>Minimum pass score</strong><span>Finalize with limitations if the report does not meet this threshold.</span></div><span class="config-value">' + PASS_SCORE + ' / 100</span></div><div class="config-row"><div class="config-copy"><strong>Retry approach</strong><span>Research only unresolved gaps when meaningful new evidence may be found.</span></div><span class="config-value">Targeted</span></div></section>' +
-    '<section class="panel"><div class="panel-head"><h2 class="section-title">Source priority</h2></div><div class="config-row"><div class="config-copy"><strong>Preferred sources</strong><span>Use higher priority sources first and keep lower-tier material in context.</span><div class="tier-list"><span>Exchange filings</span><span>Company filings</span><span>Audited statements</span><span>Investor presentations</span><span>Financial news</span></div></div></div><div class="config-row"><div class="config-copy"><strong>Universe checks</strong><span>Verify current small-cap classification and exclude SME securities unless requested.</span></div><span class="config-value">Required</span></div><div class="config-row"><div class="config-copy"><strong>Data provider</strong><span>Live research tools are not configured in this preview.</span></div><span class="status-chip status-demo">Not connected</span></div></section></div>';
+    '<section class="panel"><div class="panel-head"><h2 class="section-title">Provider health</h2><span class="panel-head-meta">' + (state.backendAvailable ? 'Server connected' : 'Server unavailable') + '</span></div>' +
+    providerRow('OpenAI-compatible LLM', 'llm') + providerRow('Tavily web search', 'tavily') + providerRow('GDELT news discovery', 'gdelt') + providerRow('India market data adapter', 'market_data') + providerRow('SQLite database', 'database') +
+    '<div class="config-row"><div class="config-copy"><strong>Source priority</strong><span>Official exchanges and regulators are marked primary by domain; news and market vendor data remain secondary.</span><div class="tier-list"><span>Exchange filings</span><span>Regulators</span><span>Company disclosures</span><span>Financial news</span></div></div></div></section></div>';
 }
 
 function reportTrace(run) {
@@ -288,37 +280,171 @@ function reportTrace(run) {
 }
 
 function reportSummary(run) {
+  const metrics = run.metrics || {};
   const values = [
     ['run_id', run.id],
-    ['iterations', run.iterationCount || 1],
-    ['initial_score', 'DATA NOT AVAILABLE'],
-    ['final_score', 'DATA NOT AVAILABLE'],
-    ['sources_checked', run.sourcesChecked || 0],
-    ['primary_sources', run.primarySources || 0],
-    ['secondary_sources', run.secondarySources || 0],
-    ['critical_gaps_found', run.criticalGapsFound || 1],
-    ['critical_gaps_resolved', run.criticalGapsResolved || 0],
-    ['unresolved_gaps', run.unresolvedGaps || 1],
-    ['status', run.isDemo ? 'DEMO' : 'LIMITED']
+    ['iterations', run.iterationCount == null ? 0 : run.iterationCount],
+    ['initial_score', run.initialScore == null ? 'DATA NOT AVAILABLE' : run.initialScore + ' / 100'],
+    ['final_score', run.finalScore == null ? 'DATA NOT AVAILABLE' : run.finalScore + ' / 100'],
+    ['sources_checked', run.sourcesChecked == null ? 0 : run.sourcesChecked],
+    ['primary_sources', run.primarySources == null ? 0 : run.primarySources],
+    ['secondary_sources', run.secondarySources == null ? 0 : run.secondarySources],
+    ['critical_gaps_found', run.criticalGapsFound == null ? 0 : run.criticalGapsFound],
+    ['critical_gaps_resolved', run.criticalGapsResolved == null ? 0 : run.criticalGapsResolved],
+    ['unresolved_gaps', run.unresolvedGaps == null ? 0 : run.unresolvedGaps],
+    ['llm_calls', metrics.llmCalls == null ? 0 : metrics.llmCalls],
+    ['llm_json_repairs', metrics.llmRetryCount == null ? 0 : metrics.llmRetryCount],
+    ['tavily_searches', metrics.tavilySearchCount == null ? 0 : metrics.tavilySearchCount],
+    ['tavily_credit_estimate', metrics.tavilyCreditEstimate == null ? 'DATA NOT AVAILABLE' : metrics.tavilyCreditEstimate],
+    ['market_data_calls', metrics.marketDataCalls == null ? 0 : metrics.marketDataCalls],
+    ['provider_errors', metrics.providerErrors == null ? 0 : metrics.providerErrors],
+    ['cost', 'DATA NOT AVAILABLE'],
+    ['status', run.isDemo ? 'DEMO' : String(run.status || 'unknown').toUpperCase()]
   ];
   return '<div class="run-summary"><h3>Run summary</h3><div class="summary-grid">' + values.map(function (item) { return '<span>' + item[0] + '</span><strong>' + escapeHtml(item[1]) + '</strong>'; }).join('') + '</div></div>';
+}
+
+function safeSourceUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function citationLinks(evidenceIds, run) {
+  const sourceIds = new Set();
+  (run.evidence || []).forEach(function (evidence) {
+    if ((evidenceIds || []).includes(evidence.id)) (evidence.sourceIds || []).forEach(function (id) { sourceIds.add(id); });
+  });
+  return (run.sources || []).filter(function (source) { return sourceIds.has(source.id); }).map(function (source) {
+    const href = safeSourceUrl(source.url);
+    return href ? '<a class="citation-link" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.title || source.publisher || 'Source') + '</a>' : '';
+  }).filter(Boolean).join(' ');
+}
+
+function claimSection(title, claims, run) {
+  const items = (claims || []).filter(function (claim) { return claim && claim.text; });
+  const body = items.length ? items.map(function (claim) {
+    const citations = citationLinks(claim.evidenceIds, run);
+    return '<p class="report-claim">' + escapeHtml(claim.text) + (citations ? '<span class="claim-citations">' + citations + '</span>' : '') + '</p>';
+  }).join('') : '<p>DATA NOT AVAILABLE.</p>';
+  return '<section class="report-section"><h3>' + escapeHtml(title) + '</h3>' + body + '</section>';
+}
+
+function renderEvidenceTable(run) {
+  const rows = (run.evidence || []).map(function (item) {
+    const urls = citationLinks([item.id], run);
+    const question = escapeHtml((item.questionIds || []).join(', ') || '—');
+    const source = urls || escapeHtml(item.publisher || 'Not linked');
+    const date = item.publicationDate ? escapeHtml(new Date(item.publicationDate).toLocaleDateString('en-CA')) : 'DATA NOT AVAILABLE';
+    return '<tr><td>' + question + '</td><td><strong>' + escapeHtml(item.kind) + '</strong><br />' + escapeHtml(item.claim) + '</td><td>' + source + '</td><td>' + date + '</td><td>NOT SCORED</td></tr>';
+  }).join('');
+  const empty = '<tr><td class="table-empty" colspan="5">No evidence was extracted from retrieved sources.</td></tr>';
+  return '<div class="report-table"><div class="table-scroll"><table class="data-table"><thead><tr><th>Questions</th><th>Evidence claim</th><th>Source</th><th>Published</th><th>Confidence</th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div></div>';
+}
+
+function renderSourceTable(run) {
+  const rows = (run.sources || []).map(function (source) {
+    const href = safeSourceUrl(source.url);
+    const link = href ? '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.title || source.domain) + '</a>' : escapeHtml(source.title);
+    const date = source.publicationDate ? escapeHtml(new Date(source.publicationDate).toLocaleDateString('en-CA')) : 'DATA NOT AVAILABLE';
+    const questionIds = (run.evidence || []).filter(function (item) { return (item.sourceIds || []).includes(source.id); })
+      .flatMap(function (item) { return item.questionIds || []; });
+    const questions = Array.from(new Set(questionIds)).join(', ') || '—';
+    return '<tr><td>' + link + '</td><td>' + escapeHtml(source.sourceType.toUpperCase()) + '</td><td>' + escapeHtml(source.publisher) + '</td><td>' + date + '</td><td>' + escapeHtml(questions) + '</td><td>NOT SCORED</td></tr>';
+  }).join('');
+  const empty = '<tr><td class="table-empty" colspan="6">No sources were checked.</td></tr>';
+  return '<div class="report-table"><div class="table-scroll"><table class="data-table"><thead><tr><th>Source</th><th>Type</th><th>Publisher</th><th>Published</th><th>Used for</th><th>Confidence</th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div></div>';
+}
+
+function renderIterationHistory(run) {
+  const iterations = run.iterations || [];
+  if (!iterations.length) return '<p>' + (run.isDemo ? 'This bundled example does not represent a real research iteration.' : 'No research iteration was run.') + '</p>';
+  return iterations.map(function (item) {
+    const gaps = (item.criticalGaps || []).length
+      ? '<ul class="unknown-list">' + item.criticalGaps.map(function (gap) { return '<li>' + escapeHtml(gap) + '</li>'; }).join('') + '</ul>'
+      : '<p>No unresolved gaps were recorded for this iteration.</p>';
+    return '<div class="iteration-card"><strong>Iteration ' + item.iteration + ' of ' + MAX_ITERATIONS + '</strong><p>' +
+      item.searchTasks + ' search task(s) · ' + item.sourcesAdded + ' new source(s) · ' + item.sourcesChecked + ' total · ' +
+      item.primarySources + ' primary · ' + item.secondarySources + ' secondary · score ' +
+      (item.score == null ? 'DATA NOT AVAILABLE' : escapeHtml(item.score + ' / 100')) + '</p>' + gaps + '</div>';
+  }).join('');
+}
+
+function classificationSection(value) {
+  const classification = value || { classification: 'unknown', source: null, verifiedAt: null, confidence: null };
+  const href = classification.source ? safeSourceUrl(classification.source) : null;
+  const source = href
+    ? '<a class="citation-link" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">Open verified source</a>'
+    : 'DATA NOT AVAILABLE';
+  const verifiedAt = classification.verifiedAt
+    ? escapeHtml(new Date(classification.verifiedAt).toLocaleString('en-IN'))
+    : 'NOT VERIFIED';
+  return '<section class="report-section"><h3>Company classification</h3><div class="summary-grid"><span>Classification</span><strong>' +
+    escapeHtml(classification.classification || 'unknown') + '</strong><span>Source</span><strong>' + source +
+    '</strong><span>Verified at</span><strong>' + verifiedAt + '</strong><span>Confidence</span><strong>' +
+    (classification.confidence == null ? 'NOT SCORED' : escapeHtml(classification.confidence + ' / 100')) + '</strong></div></section>';
 }
 
 function renderReport(run) {
   const query = escapeHtml(run.query);
   const exchange = escapeHtml(run.exchange || 'NSE / BSE');
-  return '<div class="report-top"><button class="back-link" type="button" data-view="runs">' + icon('back') + ' Research runs</button><h1>Company research report</h1>' + renderNotice(true) +
-    '<div class="report-identity"><div><h2>' + (run.isDemo ? escapeHtml(run.label) : 'Research request') + '</h2><span class="report-symbol">' + exchange + ' · ' + (run.isDemo ? 'Example' : 'Local preview') + '</span></div><span class="status-chip status-limited">' + (run.isDemo ? 'Demo only' : 'Complete with limitations') + '</span><div class="report-meta"><span><strong>Research question</strong>' + query + '</span><button class="button button-secondary" type="button" data-export="' + escapeHtml(run.id) + '">' + icon('download') + ' Export report</button></div></div></div>' +
+  const report = run.report || (run.isDemo ? {
+    status: 'LIMITED',
+    classification: { classification: 'unknown', source: null, verifiedAt: null, confidence: null },
+    executiveSummary: { text: 'No live research was performed for this bundled example. Exchange filings, company disclosures, market prices, financial statements, and current small-cap classification were not checked.', evidenceIds: [] },
+    whatHappened: [],
+    verifiedEvidence: [],
+    likelyDrivers: [],
+    fundamentalContext: [],
+    bullCase: [],
+    bearCase: [],
+    keyRisks: [],
+    contradictoryEvidence: [],
+    unknowns: [
+      'Whether the security is currently classified as small-cap.',
+      'What exchange filings or company announcements were published.',
+      'Whether the requested market move occurred and at what volume.',
+      'Whether the latest fundamental data changes the analysis.'
+    ],
+    confidence: 'NOT SCORED',
+    qualityScore: null,
+    limitations: ['Bundled example only; no provider calls or source checks occurred.']
+  } : null);
+  const unknowns = report ? report.unknowns || [] : run.gaps || [];
+  const score = report && report.qualityScore != null ? report.qualityScore : run.finalScore;
+  const summary = report && report.executiveSummary ? report.executiveSummary.text : run.status === 'running' ? 'Research is running. Follow the live stage trace for progress.' : 'No final report is available for this run.';
+  const statusLabel = run.isDemo ? 'Demo only' : String(run.status || 'unknown').toUpperCase();
+  const statusCss = statusClass(run);
+  const finalClaims = report || {};
+  const unknownMarkup = unknowns.length
+    ? unknowns.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('')
+    : '<li>No unresolved questions were recorded.</li>';
+  const iterationCount = run.iterationCount == null ? 0 : run.iterationCount;
+  const reportNotice = renderNotice(true, run);
+  const evidenceSection = '<section class="report-section"><h3>Verified evidence</h3><p>Evidence is shown as extracted from retrieved sources. Confidence values are not independently scored.</p>' + renderEvidenceTable(run) + '</section>' +
+    '<section class="report-section"><h3>Sources</h3><p>Primary labels are assigned only to recognized official exchange, regulator, and government domains. News and vendor feeds remain secondary.</p>' + renderSourceTable(run) + '</section>';
+  const analysisSections = [
+    claimSection('What happened', finalClaims.whatHappened, run),
+    claimSection('Likely drivers', finalClaims.likelyDrivers, run),
+    claimSection('Fundamental context', finalClaims.fundamentalContext, run),
+    claimSection('Bull case', finalClaims.bullCase, run),
+    claimSection('Bear case', finalClaims.bearCase, run),
+    claimSection('Key risks', finalClaims.keyRisks, run),
+    claimSection('Contradictory evidence', finalClaims.contradictoryEvidence, run)
+  ].join('');
+  const limitations = (report && report.limitations || []).map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('');
+  const limitationBlock = limitations ? '<div class="unknown-block"><h3>Limitations</h3><ul class="unknown-list">' + limitations + '</ul></div>' : '';
+  return '<div class="report-top"><button class="back-link" type="button" data-view="runs">' + icon('back') + ' Research runs</button><h1>Company research report</h1>' + reportNotice +
+    '<div class="report-identity"><div><h2>' + (run.isDemo ? escapeHtml(run.label) : 'Research request') + '</h2><span class="report-symbol">' + exchange + ' · ' + (run.isDemo ? 'Example' : escapeHtml(run.id)) + '</span></div><span class="status-chip ' + statusCss + '">' + escapeHtml(statusLabel) + '</span><div class="report-meta"><span><strong>Research question</strong>' + query + '</span>' + (!run.isDemo ? '<button class="button button-secondary" type="button" data-export="' + escapeHtml(run.id) + '">' + icon('download') + ' Export report</button>' : '') + '</div></div></div>' +
     '<div class="report-layout"><article class="panel report-main">' +
-    '<section class="report-section"><div class="report-summary-grid"><div><h3>Executive summary</h3><p>No live research was performed for this request. The preview attempted to organize the question, but exchange filings, company disclosures, market prices, financial statements, and current small-cap classification were not checked. The result is incomplete and should not be used as investment research.</p></div><div class="confidence-block"><span class="confidence-value">DATA NOT AVAILABLE</span><span class="unavailable-pill">No evidence collected</span><span class="confidence-label">A confidence score is not assigned without verified evidence.</span></div></div></section>' +
-    '<section class="report-section"><h3>What happened</h3><p>Not verified. No exchange price or volume data was retrieved for this research request.</p></section>' +
-    '<section class="report-section"><h3>Verified evidence</h3><p>DATA NOT AVAILABLE — no source provider is connected, so no claims were verified.</p><div class="report-table"><div class="table-scroll"><table class="data-table"><thead><tr><th>Research question</th><th>Source</th><th>Publication date</th><th>Confidence</th></tr></thead><tbody><tr><td>Exchange filing and market move</td><td>Not checked</td><td>DATA NOT AVAILABLE</td><td>—</td></tr><tr><td>Latest financial statements</td><td>Not checked</td><td>DATA NOT AVAILABLE</td><td>—</td></tr><tr><td>Current small-cap classification</td><td>Not checked</td><td>DATA NOT AVAILABLE</td><td>—</td></tr></tbody></table></div></div></section>' +
-    '<section class="report-section"><h3>Likely drivers</h3><p>Not assessed. No company announcement, quarterly result, sector development, or other catalyst was researched.</p></section>' +
-    '<section class="report-section"><h3>Fundamental context</h3><p>DATA NOT AVAILABLE — revenue, profitability, cash flow, leverage, shareholding, and valuation were not checked.</p></section>' +
-    '<section class="report-section"><h3>Bull case and bear case</h3><p>No investment case is presented because there is no verified evidence to support one.</p></section>' +
-    '<section class="report-section"><h3>Contradictory evidence</h3><p>No sources were checked, so conflicts could not be assessed.</p></section></article>' +
-    '<aside class="panel report-side"><h2 class="section-title">Research loop</h2><div class="iteration-label"><span>Iteration ' + (run.iterationCount || 1) + ' of ' + MAX_ITERATIONS + '</span><span>Limited</span></div>' + reportTrace(run) +
-    '<div class="unknown-block"><h3>What remains unknown</h3><ul class="unknown-list"><li>Whether the security is currently classified as small-cap.</li><li>What exchange filings or company announcements were published.</li><li>Whether the requested market move occurred and at what volume.</li><li>Whether the latest fundamental data changes the analysis.</li></ul></div>' + reportSummary(run) +
+    '<section class="report-section"><div class="report-summary-grid"><div><h3>Executive summary</h3><p>' + escapeHtml(summary) + '</p></div><div class="confidence-block"><span class="confidence-value">' + (score == null ? 'DATA NOT AVAILABLE' : escapeHtml(score + ' / 100')) + '</span><span class="unavailable-pill">' + (run.isDemo ? 'Demo only' : 'Critic score') + '</span><span class="confidence-label">Evidence confidence is not independently scored.</span></div></div></section>' +
+    classificationSection(report && report.classification) + evidenceSection + analysisSections +
+    '<section class="report-section"><h3>Iteration history</h3>' + renderIterationHistory(run) + '</section></article>' +
+    '<aside class="panel report-side"><h2 class="section-title">Research loop</h2><div class="iteration-label"><span>Iteration ' + iterationCount + ' of ' + MAX_ITERATIONS + '</span><span>' + escapeHtml(statusLabel) + '</span></div>' + reportTrace(run) +
+    '<div class="unknown-block"><h3>What remains unknown</h3><ul class="unknown-list">' + unknownMarkup + '</ul></div>' + limitationBlock + reportSummary(run) +
     '<div class="report-action-row"><button class="button button-secondary" type="button" data-new-research>Start another query</button></div></aside></div>';
 }
 
@@ -342,56 +468,112 @@ function renderApp() {
   }
 }
 
-function startResearch(query, exchange) {
-  const run = {
-    id: 'run-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
-    query: query,
-    exchange: exchange,
-    status: 'running',
-    stage: 'plan',
-    createdAt: new Date().toISOString(),
-    iterationCount: 1,
-    trace: [{ stage: 'plan', title: 'Plan prepared', detail: 'Research questions organized for the submitted query.' }],
-    sourcesChecked: 0,
-    primarySources: 0,
-    secondarySources: 0,
-    criticalGapsFound: 0,
-    criticalGapsResolved: 0,
-    unresolvedGaps: 0,
-    confidence: null
-  };
-  state.runs.unshift(run);
-  state.selectedRunId = run.id;
-  state.isRunning = true;
-  saveRuns();
+async function apiRequest(url, options) {
+  const response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+  let body = {};
+  try { body = await response.json(); } catch (error) { body = {}; }
+  if (!response.ok) throw new Error(body.error || ('Request failed with HTTP ' + response.status + '.'));
+  return body;
+}
+
+function replaceRun(run) {
+  const index = state.runs.findIndex(function (item) { return item.id === run.id; });
+  if (index < 0) state.runs.unshift(run);
+  else state.runs[index] = Object.assign({}, state.runs[index], run);
+}
+
+async function refreshRunDetail(id) {
+  const result = await apiRequest('/api/research/runs/' + encodeURIComponent(id));
+  state.selectedRunDetail = result.run;
+  replaceRun(result.run);
   renderApp();
-  showToast('Research loop started in demo mode. No live source checks will run.');
+  return result.run;
+}
 
-  window.setTimeout(function () {
-    run.stage = 'research';
-    run.trace.push({ stage: 'research', title: 'Research unavailable', detail: 'No live source provider is configured; 0 sources were checked.' });
-    saveRuns();
-    renderApp();
-  }, 700);
-
-  window.setTimeout(function () {
-    run.stage = 'critique';
-    run.criticalGapsFound = 1;
-    run.unresolvedGaps = 1;
-    run.trace.push({ stage: 'critique', title: 'Critical gap identified', detail: 'Source access is required to verify the requested market and company information.' });
-    saveRuns();
-    renderApp();
-  }, 1450);
-
-  window.setTimeout(function () {
+function handleRunEvent(runId, event) {
+  const run = state.runs.find(function (item) { return item.id === runId; });
+  if (!run || !event) return;
+  if (event.type === 'stage') {
+    run.stage = event.stage || run.stage;
+    run.iterationCount = Math.max(run.iterationCount || 0, Number(event.iteration) || 0);
+    run.trace = run.trace || [];
+    run.trace.push({
+      stage: event.stage || '',
+      status: event.status || '',
+      title: event.title || event.stage || '',
+      detail: event.detail || '',
+      at: event.at || new Date().toISOString()
+    });
+    if (typeof event.score === 'number') {
+      run.finalScore = event.score;
+      if (Number(event.iteration) === 1) run.initialScore = event.score;
+      run.criticalGapsFound = Math.max(run.criticalGapsFound || 0, (event.criticalGaps || []).length);
+      run.unresolvedGaps = (event.criticalGaps || []).length;
+      run.gaps = event.criticalGaps || [];
+    }
+  } else if (event.type === 'final') {
+    run.status = event.status || 'limited';
     run.stage = 'finalize';
-    run.status = 'limited';
-    run.trace.push({ stage: 'finalize', title: 'Finalized with limitations', detail: 'No meaningful retry is possible until a live research source is connected.' });
-    state.isRunning = false;
-    saveRuns();
-    setView('report');
-    showToast('Run finalized with limitations. No live source checks were performed.');
-  }, 2300);
+    run.finalScore = event.score == null ? null : event.score;
+    run.metrics = event.metrics || run.metrics;
+    state.isRunning = state.runs.some(function (item) { return item.status === 'running'; });
+  }
+  renderApp();
+}
+
+function connectRunEvents(run) {
+  if (state.eventSource) state.eventSource.close();
+  const source = new EventSource('/api/research/runs/' + encodeURIComponent(run.id) + '/events');
+  state.eventSource = source;
+  source.onmessage = function (message) {
+    let event;
+    try { event = JSON.parse(message.data); } catch (error) { return; }
+    handleRunEvent(run.id, event);
+    if (event.type === 'final') {
+      source.close();
+      state.eventSource = null;
+      refreshRunDetail(run.id).then(function () {
+        state.isRunning = state.runs.some(function (item) { return item.status === 'running'; });
+        setView('report');
+        showToast('Run finished with status ' + String(event.status || 'unknown').toUpperCase() + '.');
+      }).catch(function () {
+        showToast('Run ended, but the saved report could not be loaded.');
+      });
+    }
+  };
+  source.onerror = function () {
+    const current = state.runs.find(function (item) { return item.id === run.id; });
+    if (current && current.status !== 'running') source.close();
+  };
+}
+
+async function startResearch(query, exchange) {
+  if (!state.backendAvailable) {
+    showToast('Research backend is unavailable. Start npm run dev first.');
+    return;
+  }
+  state.isRunning = true;
+  renderApp();
+  try {
+    const result = await apiRequest('/api/research/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ query: query, exchange: exchange })
+    });
+    const run = result.run;
+    replaceRun(run);
+    state.selectedRunId = run.id;
+    state.selectedRunDetail = run;
+    showToast('Research request accepted by the server.');
+    renderApp();
+    connectRunEvents(run);
+  } catch (error) {
+    state.isRunning = state.runs.some(function (item) { return item.status === 'running'; });
+    renderApp();
+    const errorNode = document.getElementById('query-error');
+    if (errorNode) errorNode.textContent = error.message;
+    showToast(error.message);
+  }
 }
 
 function filterRunRows() {
@@ -409,7 +591,10 @@ function filterRunRows() {
     const rowText = row.textContent.toLowerCase();
     const isDemo = row.textContent.toLowerCase().includes('demo only');
     const isLimited = row.textContent.toLowerCase().includes('limited');
-    const matchStatus = status === 'all' || (status === 'demo' && isDemo) || (status === 'limited' && isLimited);
+    const isCompleted = row.textContent.toLowerCase().includes('completed');
+    const isFailed = row.textContent.toLowerCase().includes('failed');
+    const matchStatus = status === 'all' || (status === 'demo' && isDemo) || (status === 'limited' && isLimited) ||
+      (status === 'completed' && isCompleted) || (status === 'failed' && isFailed);
     const show = rowText.includes(query) && matchStatus;
     row.hidden = !show;
     if (show && !row.querySelector('.table-empty')) visible += 1;
@@ -425,6 +610,19 @@ function filterRunRows() {
 }
 
 function exportRun(run) {
+  if (!run.isDemo) {
+    fetch('/api/research/runs/' + encodeURIComponent(run.id) + '/export', { credentials: 'same-origin' })
+      .then(function (response) {
+        if (!response.ok) throw new Error('Report export failed with HTTP ' + response.status + '.');
+        return response.json();
+      })
+      .then(function (payload) {
+        downloadFile('researchloop-' + run.id + '.json', JSON.stringify(payload, null, 2), 'application/json');
+        showToast('Saved report JSON downloaded.');
+      })
+      .catch(function (error) { showToast(error.message); });
+    return;
+  }
   const summary = {
     run_id: run.id,
     query: run.query,
@@ -437,11 +635,27 @@ function exportRun(run) {
     critical_gaps_found: run.criticalGapsFound || 1,
     critical_gaps_resolved: run.criticalGapsResolved || 0,
     unresolved_gaps: run.unresolvedGaps || 1,
-    status: run.isDemo ? 'DEMO' : 'LIMITED',
-    note: 'No live source checks were performed in this demo.'
+    status: 'DEMO',
+    note: 'This bundled example is not live research.'
   };
-  const payload = { report_status: summary.status, run_summary: summary, trace: run.trace || [] };
+  const payload = { report_status: summary.status, run_summary: summary, trace: run.trace || [], sources: [], evidence: [] };
   downloadFile('researchloop-' + run.id + '.json', JSON.stringify(payload, null, 2), 'application/json');
+}
+
+async function openReport(id) {
+  state.selectedRunId = id;
+  const demo = DEMO_RUNS.find(function (run) { return run.id === id; });
+  if (demo) {
+    state.selectedRunDetail = demo;
+    setView('report');
+    return;
+  }
+  try {
+    await refreshRunDetail(id);
+    setView('report');
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function downloadFile(filename, contents, mimeType) {
@@ -465,23 +679,21 @@ document.addEventListener('click', function (event) {
   }
   const openButton = event.target.closest('[data-open-report]');
   if (openButton) {
-    state.selectedRunId = openButton.dataset.openReport;
-    setView('report');
+    openReport(openButton.dataset.openReport);
     return;
   }
   if (event.target.closest('[data-new-research]')) {
     setView('overview');
-    window.setTimeout(function () { document.getElementById('research-query')?.focus(); }, 40);
+    window.requestAnimationFrame(function () { document.getElementById('research-query')?.focus(); });
     return;
   }
   if (event.target.closest('.workspace-button')) {
-    showToast('This preview has one local demo workspace.');
+    showToast('This local workspace is served by the ResearchLoop backend.');
     return;
   }
   const exportButton = event.target.closest('[data-export]');
   if (exportButton) {
     exportRun(getRun(exportButton.dataset.export));
-    showToast('Report summary downloaded as JSON.');
     return;
   }
   if (event.target.closest('[data-export-list]')) {
@@ -492,10 +704,15 @@ document.addEventListener('click', function (event) {
   }
   const removeButton = event.target.closest('[data-remove-watch]');
   if (removeButton) {
-    state.watchlist.splice(Number(removeButton.dataset.removeWatch), 1);
-    saveWatchlist();
-    renderApp();
-    showToast('Symbol removed from this browser’s watchlist.');
+    const item = state.watchlist[Number(removeButton.dataset.removeWatch)];
+    if (!item) return;
+    apiRequest('/api/watchlist/' + encodeURIComponent(item.symbol), { method: 'DELETE' })
+      .then(function () {
+        state.watchlist = state.watchlist.filter(function (saved) { return saved.symbol !== item.symbol; });
+        renderApp();
+        showToast('Symbol removed from the server watchlist.');
+      })
+      .catch(function (error) { showToast(error.message); });
     return;
   }
   if (event.target.closest('#mobile-menu')) {
@@ -526,16 +743,21 @@ document.addEventListener('submit', function (event) {
   if (event.target.id === 'watchlist-form') {
     event.preventDefault();
     const field = event.target.elements.symbol;
-    const symbol = field.value.trim().toUpperCase().replace(/[^A-Z0-9.&-]/g, '');
+    const symbol = field.value.trim().toUpperCase();
     if (!symbol) return;
     if (state.watchlist.some(function (item) { return item.symbol === symbol; })) {
       showToast('That symbol is already in the watchlist.');
       return;
     }
-    state.watchlist.unshift({ symbol: symbol, exchange: 'Not verified' });
-    saveWatchlist();
-    renderApp();
-    showToast('Symbol saved locally. Exchange listing is not verified.');
+    apiRequest('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ symbol: symbol, exchange: 'NSE / BSE' })
+    }).then(function (result) {
+      state.watchlist.unshift({ symbol: result.item.symbol, exchange: result.item.exchange });
+      renderApp();
+      showToast('Symbol saved in SQLite. Exchange listing remains unverified.');
+    }).catch(function (error) { showToast(error.message); });
   }
 });
 
@@ -549,4 +771,35 @@ document.addEventListener('keydown', function (event) {
   if (event.key === 'Escape') closeMobileNav();
 });
 
+async function bootstrap() {
+  try {
+    await apiRequest('/api/session');
+    const values = await Promise.all([
+      apiRequest('/api/research/runs'),
+      apiRequest('/api/watchlist'),
+      apiRequest('/api/providers/health')
+    ]);
+    state.runs = values[0].runs || [];
+    state.watchlist = values[1].items || [];
+    state.providerHealth = values[2] || {};
+    state.backendAvailable = true;
+    state.isRunning = state.runs.some(function (run) { return run.status === 'running'; });
+    const active = state.runs.find(function (run) { return run.status === 'running'; });
+    const latest = active || state.runs[0];
+    if (latest) {
+      try {
+        const detail = await refreshRunDetail(latest.id);
+        if (active) connectRunEvents(detail);
+      } catch (error) {
+        state.selectedRunDetail = null;
+      }
+    }
+  } catch (error) {
+    state.backendAvailable = false;
+    state.providerHealth = {};
+  }
+  renderApp();
+}
+
 renderApp();
+bootstrap();

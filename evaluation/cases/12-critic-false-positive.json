@@ -1,0 +1,8 @@
+{
+  "id": "critic-false-positive",
+  "kind": "critic-false-positive",
+  "expected": {
+    "retryRequired": false,
+    "qualityGatePassed": true
+  }
+}

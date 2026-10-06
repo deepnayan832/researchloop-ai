@@ -1,0 +1,7 @@
+{
+  "id": "targeted-retry",
+  "kind": "targeted-retry",
+  "expected": {
+    "targets": ["Q2"]
+  }
+}

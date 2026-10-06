@@ -1,0 +1,8 @@
+{
+  "id": "conflicting-evidence",
+  "kind": "conflicting-evidence",
+  "expected": {
+    "qualityGatePassed": false,
+    "criticalConflicts": 1
+  }
+}

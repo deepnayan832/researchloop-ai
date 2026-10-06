@@ -1,0 +1,8 @@
+{
+  "id": "provider-failure",
+  "kind": "provider-failure",
+  "expected": {
+    "llmMissing": true,
+    "reportsLimited": true
+  }
+}

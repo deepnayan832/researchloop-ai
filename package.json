@@ -1,0 +1,23 @@
+{
+  "name": "researchloop-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Evidence-first research workflow for Indian listed companies",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "server:dev": "tsx watch server/index.ts",
+    "server:start": "node dist/server/index.js",
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test tests/api.test.ts tests/database.test.ts tests/evaluation.test.ts tests/orchestrator.test.ts tests/providers.test.ts",
+    "evaluate": "tsx server/evaluation/cli.ts",
+    "benchmark": "tsx server/evaluation/benchmark.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

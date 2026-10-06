@@ -1,0 +1,8 @@
+{
+  "id": "unknown-classification",
+  "kind": "unknown-classification",
+  "expected": {
+    "retryRequired": true,
+    "classificationVerified": false
+  }
+}
