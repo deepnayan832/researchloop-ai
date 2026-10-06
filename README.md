@@ -1,4 +1,15 @@
-# ResearchLoop AI
+<p align="center">
+  <img src="assets/research-loop-ai-logo.svg" alt="Research Loop AI logo" width="180" />
+</p>
+
+<h1 align="center">Research Loop AI</h1>
+
+<p align="center"><strong>Autonomous, evidence-driven research that discovers, verifies, analyzes, and tracks information continuously.</strong></p>
+
+<p align="center">
+  <a href="https://deepnayan832.github.io/researchloop-ai/">🌐 Live Website</a> ·
+  <a href="https://github.com/deepnayan832/researchloop-ai">💻 GitHub Repository</a>
+</p>
 
 Research Loop AI is an autonomous, evidence-driven research platform for continuously discovering, analyzing, verifying, and summarizing changing information. It turns complex research tasks into repeatable AI-powered loops that combine web research, evidence extraction, adversarial critique, gap detection, targeted retries, and final quality gating.
 
