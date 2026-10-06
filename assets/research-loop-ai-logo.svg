@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Research Loop AI</title>
+  <desc id="desc">A stylized R wrapped in an orbital research loop with analytics bars.</desc>
+  <defs>
+    <linearGradient id="g" x1="70" y1="80" x2="450" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#16B7FF"/>
+      <stop offset=".55" stop-color="#2F6BFF"/>
+      <stop offset="1" stop-color="#6E4BFF"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#07111F"/>
+  <circle cx="256" cy="256" r="196" fill="none" stroke="url(#g)" stroke-width="20" opacity=".28"/>
+  <path d="M105 190c34-73 116-116 202-104 71 10 128 47 162 103" fill="none" stroke="url(#g)" stroke-width="22" stroke-linecap="round"/>
+  <path d="M407 322c-37 65-111 104-189 94-68-9-123-43-151-95" fill="none" stroke="url(#g)" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="104" cy="190" r="17" fill="#27C7FF" filter="url(#glow)"/>
+  <path d="M171 140h104c43 0 74 25 74 64 0 28-15 48-43 59l54 89h-72l-43-73h-19v73h-65V140Zm65 56v39h26c17 0 25-7 25-20s-8-19-25-19h-26Z" fill="#F7FBFF"/>
+  <path d="M178 336h31v-62h-31v62Zm48 0h31v-92h-31v92Zm48 0h31v-130h-31v130Z" fill="#16B7FF"/>
+  <path d="M392 120l8 21 21 8-21 8-8 21-8-21-21-8 21-8 8-21Z" fill="#5BE6FF" filter="url(#glow)"/>
+  <circle cx="407" cy="322" r="17" fill="#4A7DFF" filter="url(#glow)"/>
+</svg>
