@@ -1,6 +1,10 @@
 # ResearchLoop AI
 
-ResearchLoop is a server-backed research workspace for evidence-led questions about Indian listed companies. The existing vanilla HTML/CSS interface is served by a small Node.js and TypeScript backend. New research is persisted in SQLite and streamed to the browser over Server-Sent Events (SSE).
+Research Loop AI is an autonomous, evidence-driven research platform for continuously discovering, analyzing, verifying, and summarizing changing information. It turns complex research tasks into repeatable AI-powered loops that combine web research, evidence extraction, adversarial critique, gap detection, targeted retries, and final quality gating.
+
+Built for market intelligence, company research, AI and technology monitoring, business research, and other evidence-heavy workflows, Research Loop AI is designed to separate verified evidence from inference, expose uncertainty instead of inventing facts, and preserve every run for inspection.
+
+**Direct project link:** https://github.com/deepnayan832/researchloop-ai
 
 The bundled examples are static demo records. They are labeled as examples and are never mixed into provider evidence or counted as live runs.
 
