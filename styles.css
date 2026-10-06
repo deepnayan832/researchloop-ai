@@ -39,7 +39,7 @@ svg { display: block; }
 .sidebar { position: sticky; top: 0; z-index: 30; height: 100vh; display: flex; flex-direction: column; padding: 21px 13px 14px; color: #eaf0f8; background: var(--navy); }
 .brand { display: flex; align-items: center; gap: 10px; min-height: 38px; margin: 0 4px 40px; color: #fff; }
 .brand-mark { display: inline-grid; width: 35px; height: 25px; color: #53cba5; place-items: center; flex: 0 0 auto; }
-.brand-mark svg { width: 35px; height: 25px; }
+.brand-mark img { width: 35px; height: 35px; object-fit: contain; border-radius: 9px; }
 .brand-name { font: 700 17px/1.1 Manrope, 'Segoe UI', sans-serif; letter-spacing: -0.55px; white-space: nowrap; }
 .brand-name span { color: #a5e6cf; font-weight: 600; }
 .sidebar-label { padding: 0 13px; margin: 0 0 10px; color: #8090a8; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
@@ -63,7 +63,7 @@ svg { display: block; }
 .topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; height: 67px; padding: 0 38px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }
 .topbar-title { font: 700 16px Manrope, 'Segoe UI', sans-serif; letter-spacing: -.25px; }
 .mobile-brand { display: none; align-items: center; gap: 7px; color: var(--navy); }
-.mobile-brand .brand-mark, .mobile-brand .brand-mark svg { width: 29px; height: 21px; }
+.mobile-brand .brand-mark { width: 29px; height: 29px; } .mobile-brand .brand-mark img { width: 29px; height: 29px; }
 .mobile-brand .brand-name { font-size: 13px; letter-spacing: -.35px; }
 .topbar-actions { display: flex; align-items: center; gap: 22px; }
 .demo-badge { display: inline-flex; align-items: center; gap: 7px; color: #5c6e85; font-size: 11px; font-weight: 600; }
