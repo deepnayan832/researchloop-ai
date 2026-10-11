@@ -141,12 +141,16 @@ test("production access gate, trusted public origin, secure cookie, and headers"
     store.close();
   });
 
-  const blocked = await fetch(base + "/api/health");
+  // Platform health probes stay public, while other endpoints require the shared password.
+  const publicHealth = await fetch(base + "/api/health");
+  assert.equal(publicHealth.status, 200);
+
+  const blocked = await fetch(base + "/api/providers/health");
   assert.equal(blocked.status, 401);
   assert.match(blocked.headers.get("www-authenticate") || "", /Basic/);
 
   const authorization = "Basic " + Buffer.from("researchloop:unit-test-password-long-enough").toString("base64");
-  const health = await fetch(base + "/api/health", { headers: { Authorization: authorization } });
+  const health = await fetch(base + "/api/providers/health", { headers: { Authorization: authorization } });
   assert.equal(health.status, 200);
   assert.equal(health.headers.get("strict-transport-security"), "max-age=31536000");
   assert.equal(health.headers.get("permissions-policy"), "camera=(), microphone=(), geolocation=(), payment=()");
