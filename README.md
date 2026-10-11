@@ -138,6 +138,36 @@ Default controls are 5 research runs per IP per minute, 10 session requests per 
 
 Research history retention is opt-in: `RESEARCH_RETENTION_DAYS=0` keeps saved history indefinitely, while a value from 1 to 3650 enables deletion of runs older than that many days at startup and once per day. Related records are deleted through SQLite foreign-key cascades. Choose this setting deliberately; it permanently deletes old research history.
 
+### Single-server Docker Compose deployment (recommended)
+
+For a self-hosted VPS, `compose.yaml` runs the app with a persistent SQLite volume, health checks, and Caddy for automatic HTTPS. This setup keeps the Node port private and serves the app behind the HTTPS proxy.
+
+Before deploying, point a DNS A/AAAA record for `DOMAIN` at your server, allow inbound TCP ports 80 and 443 (and optionally UDP 443), and install Docker Engine with the Compose plugin.
+
+1. Copy `.env.example` to `.env`.
+2. Set `DOMAIN` to your real hostname, `APP_ACCESS_PASSWORD` to a long unique secret (at least 16 characters), and configure `LLM_API_KEY`, `LLM_MODEL`, and `TAVILY_API_KEY` if you need live research.
+3. Start the services:
+
+```sh
+docker compose up -d --build
+docker compose ps
+docker compose logs -f app
+```
+
+The app should be reachable at `https://DOMAIN`; the basic health endpoint is `https://DOMAIN/api/health`. The app container is only exposed to the Compose network. Caddy terminates TLS and forwards a sanitized client-IP header to the app.
+
+Persistent SQLite data uses the named `researchloop_data` volume. Back up the database regularly and test restoring it before updating the application. Do not run `docker compose down -v` unless you intentionally want to delete the persistent database and Caddy state.
+
+Useful maintenance commands:
+
+```sh
+docker compose logs --tail=200 app
+docker compose up -d --build
+docker compose down
+```
+
+The configuration is for one app instance. It does not replicate SQLite, sessions, or in-memory rate limits across multiple servers. Use a single instance and persistent storage for this deployment pattern.
+
 ### Container deployment
 
 The repository includes a production `Dockerfile`. Run it behind a TLS-terminating reverse proxy so the Node port is not directly exposed to the internet. Keep a persistent volume mounted at `/app/data` for SQLite and inject secrets through the host's secret manager rather than baking them into the image.
