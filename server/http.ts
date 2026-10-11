@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { randomBytes } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig, Exchange, ResearchRun } from "./types.js";
 import { ResearchStore } from "./db/index.js";
@@ -12,9 +12,69 @@ const MAX_BODY_BYTES = 64 * 1024;
 const SESSIONS = new Map<string, number>();
 const EXCHANGES = new Set<Exchange>(["NSE", "BSE", "NSE / BSE"]);
 
-function jsonResponse(response: ServerResponse, status: number, value: unknown): void {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+function jsonResponse(response: ServerResponse, status: number, value: unknown, headers: Record<string, string> = {}): void {
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...headers
+  });
   response.end(JSON.stringify(value));
+}
+
+class SlidingWindowLimiter {
+  private readonly requests = new Map<string, number[]>();
+
+  allow(key: string, limit: number, windowMs = 60_000): boolean {
+    const now = Date.now();
+    const recent = (this.requests.get(key) || []).filter((timestamp) => now - timestamp < windowMs);
+    if (recent.length >= limit) {
+      this.requests.set(key, recent);
+      return false;
+    }
+    recent.push(now);
+    this.requests.set(key, recent);
+    if (this.requests.size > 10_000) {
+      for (const [candidate, timestamps] of this.requests) {
+        if (timestamps.length === 0 || now - timestamps[timestamps.length - 1]! >= windowMs) {
+          this.requests.delete(candidate);
+        }
+      }
+    }
+    return true;
+  }
+}
+
+const sessionCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [id, expires] of SESSIONS) if (expires <= now) SESSIONS.delete(id);
+}, 60_000);
+sessionCleanup.unref();
+
+function isSecureRequest(request: IncomingMessage, config: AppConfig): boolean {
+  if (config.publicOrigin) return new URL(config.publicOrigin).protocol === "https:";
+  return Boolean((request.socket as typeof request.socket & { encrypted?: boolean }).encrypted);
+}
+
+function clientAddress(request: IncomingMessage, config: AppConfig): string {
+  if (config.trustProxy) {
+    const forwarded = request.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.trim()) return forwarded.split(",")[0]!.trim();
+  }
+  return request.socket.remoteAddress || "unknown";
+}
+
+function hasValidBasicAuth(request: IncomingMessage, expectedPassword: string): boolean {
+  const authorization = request.headers.authorization || "";
+  const match = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(authorization);
+  if (!match) return false;
+  let decoded: string;
+  try { decoded = Buffer.from(match[1]!, "base64").toString("utf8"); }
+  catch { return false; }
+  const separator = decoded.indexOf(":");
+  if (separator < 0 || decoded.slice(0, separator) !== "researchloop") return false;
+  const supplied = createHash("sha256").update(decoded.slice(separator + 1)).digest();
+  const expected = createHash("sha256").update(expectedPassword).digest();
+  return timingSafeEqual(supplied, expected);
 }
 
 function cookieValue(request: IncomingMessage, name: string): string | null {
@@ -37,11 +97,17 @@ function hasSession(request: IncomingMessage): boolean {
   return true;
 }
 
-function isSameOrigin(request: IncomingMessage): boolean {
+function isSameOrigin(request: IncomingMessage, config: AppConfig): boolean {
   const origin = request.headers.origin;
-  if (!origin) return true;
-  const protocol = (request.socket as typeof request.socket & { encrypted?: boolean }).encrypted ? "https" : "http";
-  return origin === protocol + "://" + request.headers.host;
+  if (!origin) return false;
+  let parsedOrigin: URL;
+  try { parsedOrigin = new URL(origin); }
+  catch { return false; }
+  if (!["http:", "https:"].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) return false;
+  const expectedOrigin = config.publicOrigin ||
+    ((request.socket as typeof request.socket & { encrypted?: boolean }).encrypted ? "https" : "http") +
+      "://" + (request.headers.host || "");
+  return origin === expectedOrigin;
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -97,11 +163,16 @@ function publicExport(run: ResearchRun): Record<string, unknown> {
   };
 }
 
-function setSecurityHeaders(response: ServerResponse): void {
+function setSecurityHeaders(response: ServerResponse, secureTransport: boolean): void {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   response.setHeader("X-Frame-Options", "DENY");
-  response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  const policy = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+  response.setHeader("Content-Security-Policy", secureTransport ? policy + "; upgrade-insecure-requests" : policy);
+  if (secureTransport) response.setHeader("Strict-Transport-Security", "max-age=31536000");
 }
 
 async function serveStatic(urlPath: string, response: ServerResponse, root: string): Promise<void> {
@@ -109,7 +180,7 @@ async function serveStatic(urlPath: string, response: ServerResponse, root: stri
   try { decoded = decodeURIComponent(urlPath); }
   catch { throw new HttpError(400, "Invalid URL path."); }
   if (decoded === "/") decoded = "/index.html";
-  const publicFiles = new Set(["/index.html", "/app.js", "/styles.css"]);
+  const publicFiles = new Set(["/index.html", "/app.js", "/styles.css", "/assets/research-loop-ai-logo.svg"]);
   const isArtifact = decoded.startsWith("/artifacts/screenshots/") &&
     /\.(png|jpg|jpeg|webp|md)$/i.test(decoded) && !decoded.includes("..");
   if (!publicFiles.has(decoded) && !isArtifact) throw new HttpError(404, "Not found.");
@@ -119,7 +190,10 @@ async function serveStatic(urlPath: string, response: ServerResponse, root: stri
   const mime = decoded.endsWith(".html") ? "text/html; charset=utf-8"
     : decoded.endsWith(".js") ? "text/javascript; charset=utf-8"
       : decoded.endsWith(".css") ? "text/css; charset=utf-8"
-        : decoded.endsWith(".md") ? "text/plain; charset=utf-8" : "image/png";
+        : decoded.endsWith(".svg") ? "image/svg+xml"
+          : decoded.endsWith(".md") ? "text/plain; charset=utf-8"
+            : decoded.endsWith(".jpg") || decoded.endsWith(".jpeg") ? "image/jpeg"
+              : decoded.endsWith(".webp") ? "image/webp" : "image/png";
   const file = await readFile(fullPath);
   response.writeHead(200, { "Content-Type": mime, "Cache-Control": decoded.endsWith(".html") ? "no-cache" : "public, max-age=300" });
   response.end(file);
@@ -171,12 +245,28 @@ export function createResearchServer(input: {
   staticRoot?: string;
 }): Server {
   const root = input.staticRoot || process.cwd();
+  const limiter = new SlidingWindowLimiter();
   const server = createServer(async (request, response) => {
-    setSecurityHeaders(response);
     const method = request.method || "GET";
-    const requestUrl = new URL(request.url || "/", "http://" + (request.headers.host || "localhost"));
-    const pathname = requestUrl.pathname;
+    setSecurityHeaders(response, isSecureRequest(request, input.config));
     try {
+      const requestUrl = new URL(request.url || "/", "http://" + (request.headers.host || "localhost"));
+      const pathname = requestUrl.pathname;
+      if (input.config.accessPassword && !hasValidBasicAuth(request, input.config.accessPassword)) {
+        response.writeHead(401, {
+          "WWW-Authenticate": 'Basic realm="ResearchLoop AI", charset="UTF-8"',
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store"
+        });
+        response.end("Authentication required.");
+        return;
+      }
+      const address = clientAddress(request, input.config);
+      if (method === "GET" && pathname === "/api/session" &&
+          !limiter.allow("session:" + address, input.config.sessionRequestsPerMinute || 10)) {
+        jsonResponse(response, 429, { error: "Too many session requests. Try again in a minute." }, { "Retry-After": "60" });
+        return;
+      }
       if (method === "GET" && pathname === "/api/health") {
         jsonResponse(response, 200, { status: "ok", database: input.store.health() ? "healthy" : "error" });
         return;
@@ -195,14 +285,14 @@ export function createResearchServer(input: {
           const id = randomBytes(24).toString("base64url");
           for (const [key, expires] of SESSIONS) if (expires < Date.now()) SESSIONS.delete(key);
           SESSIONS.set(id, Date.now() + SESSION_TTL_MS);
-          const secure = (request.socket as typeof request.socket & { encrypted?: boolean }).encrypted ? "; Secure" : "";
+          const secure = isSecureRequest(request, input.config) ? "; Secure" : "";
           response.setHeader("Set-Cookie", SESSION_COOKIE + "=" + id + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=" + String(SESSION_TTL_MS / 1000) + secure);
         }
         jsonResponse(response, 200, { authenticated: true, expires_in_seconds: SESSION_TTL_MS / 1000 });
         return;
       }
       if (pathname.startsWith("/api/")) {
-        if ((method === "POST" || method === "DELETE") && !isSameOrigin(request)) {
+        if ((method === "POST" || method === "DELETE") && !isSameOrigin(request, input.config)) {
           jsonResponse(response, 403, { error: "Cross-origin API writes are not allowed." });
           return;
         }
@@ -215,6 +305,14 @@ export function createResearchServer(input: {
           return;
         }
         if (method === "POST" && (pathname === "/api/research/run" || pathname === "/api/research/runs")) {
+          if (!limiter.allow("research:" + address, input.config.researchRunsPerMinute || 5)) {
+            jsonResponse(response, 429, { error: "Research rate limit exceeded. Try again in a minute." }, { "Retry-After": "60" });
+            return;
+          }
+          if (input.orchestrator.activeRunCount >= (input.config.maxConcurrentResearchRuns || 3)) {
+            jsonResponse(response, 429, { error: "The server is already running the maximum number of research jobs." }, { "Retry-After": "30" });
+            return;
+          }
           const requestBody = validRunRequest(await readJson(request));
           const run = input.store.createRun(requestBody.query, requestBody.exchange);
           response.writeHead(202, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
