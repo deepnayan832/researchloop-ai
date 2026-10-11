@@ -15,7 +15,7 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: PORT
-        value: 10000
+        value: 8787
       - key: DATABASE_PATH
         value: /app/data/researchloop.sqlite
       - key: APP_ACCESS_PASSWORD
