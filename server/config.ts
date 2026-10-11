@@ -20,7 +20,8 @@ export function loadConfig(cwd = process.cwd()): AppConfig {
     throw new Error("PORT must be an integer between 0 and 65535.");
   }
   const accessPassword = process.env.APP_ACCESS_PASSWORD || "";
-  const publicOriginInput = (process.env.PUBLIC_ORIGIN || "").trim();
+  // Render provides RENDER_EXTERNAL_URL at runtime. PUBLIC_ORIGIN may override it for custom domains.
+  const publicOriginInput = (process.env.PUBLIC_ORIGIN || process.env.RENDER_EXTERNAL_URL || "").trim();
   const isProduction = process.env.NODE_ENV === "production";
   let publicOrigin: string | undefined;
   if (publicOriginInput) {
