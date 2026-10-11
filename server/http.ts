@@ -256,7 +256,8 @@ export function createResearchServer(input: {
     try {
       const requestUrl = new URL(request.url || "/", "http://" + (request.headers.host || "localhost"));
       const pathname = requestUrl.pathname;
-      if (input.config.accessPassword && !hasValidBasicAuth(request, input.config.accessPassword)) {
+      // Leave the basic health probe public so managed hosts can verify readiness.
+      if (pathname !== "/api/health" && input.config.accessPassword && !hasValidBasicAuth(request, input.config.accessPassword)) {
         response.writeHead(401, {
           "WWW-Authenticate": 'Basic realm="ResearchLoop AI", charset="UTF-8"',
           "Content-Type": "text/plain; charset=utf-8",
