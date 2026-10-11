@@ -1,0 +1,49 @@
+# Render Blueprint for a low-cost staging deployment.
+# The free instance uses an ephemeral filesystem: SQLite history is NOT durable
+# across instance replacement or redeploy. Upgrade to a paid instance and add a
+# persistent disk mounted at /app/data before using this as a production service.
+services:
+  - type: web
+    name: researchloop-ai
+    runtime: docker
+    plan: free
+    autoDeployTrigger: off
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /app/data/researchloop.sqlite
+      - key: APP_ACCESS_PASSWORD
+        sync: false
+      # Render RENDER_EXTERNAL_URL is picked up automatically by server/config.ts.
+      - key: PUBLIC_ORIGIN
+        value: ""
+      - key: TRUST_PROXY
+        value: "false"
+      - key: MAX_CONCURRENT_RESEARCH_RUNS
+        value: "3"
+      - key: RESEARCH_RUNS_PER_MINUTE
+        value: "5"
+      - key: SESSION_REQUESTS_PER_MINUTE
+        value: "10"
+      - key: RESEARCH_RETENTION_DAYS
+        value: "0"
+      - key: LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: MARKET_DATA_PROVIDER
+        value: yahoo
+      - key: MARKET_DATA_BASE_URL
+        value: https://query1.finance.yahoo.com
+      - key: MARKET_DATA_API_KEY
+        value: ""
