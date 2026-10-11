@@ -16,7 +16,7 @@ server.listen(config.port, config.host, () => {
     timestamp: new Date().toISOString(),
     stage: "server",
     result: "listening",
-    url: "http://" + config.host + ":" + port,
+    url: config.publicOrigin || ("http://" + config.host + ":" + port),
     database: config.databasePath
   }) + "\n");
 });
