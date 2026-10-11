@@ -195,12 +195,12 @@ test("per-IP session and research sliding-window limits return 429", async (t) =
   assert.ok(cookie);
 
   for (let i = 0; i < 5; i += 1) {
-    const response = await fetch(base + "/api/research/run", {
+    const researchResponse: Response = await fetch(base + "/api/research/run", {
       method: "POST",
       headers: { Cookie: cookie!, Origin: base, "Content-Type": "application/json" },
       body: JSON.stringify({ query: "Rate-limit test request number " + i, exchange: "NSE" })
     });
-    assert.equal(response.status, 202);
+    assert.equal(researchResponse.status, 202);
   }
   const limitedResearch = await fetch(base + "/api/research/run", {
     method: "POST",
