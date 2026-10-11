@@ -210,6 +210,15 @@ export interface AppConfig {
   marketDataProvider: string;
   marketDataBaseUrl: string;
   marketDataApiKey: string;
+  /** Canonical public origin, e.g. https://research.example.com. Set behind TLS-terminating proxies. */
+  publicOrigin?: string;
+  /** Optional shared-password gate for the single-user deployment. Required in production. */
+  accessPassword?: string;
+  /** Trust X-Forwarded-For only when the configured edge proxy overwrites it. */
+  trustProxy?: boolean;
+  maxConcurrentResearchRuns?: number;
+  researchRunsPerMinute?: number;
+  sessionRequestsPerMinute?: number;
 }
 
 export interface ProviderUsage {
