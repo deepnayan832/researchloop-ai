@@ -136,6 +136,8 @@ Set `PUBLIC_ORIGIN` to the browser-visible origin when TLS terminates at a proxy
 
 Default controls are 5 research runs per IP per minute, 10 session requests per IP per minute, and at most 3 concurrent research runs across the server. Tune with `RESEARCH_RUNS_PER_MINUTE`, `SESSION_REQUESTS_PER_MINUTE`, and `MAX_CONCURRENT_RESEARCH_RUNS`. These in-memory limits are intended for a single Node process; multi-instance hosting requires shared rate-limit/session state or edge-level controls.
 
+Research history retention is opt-in: `RESEARCH_RETENTION_DAYS=0` keeps saved history indefinitely, while a value from 1 to 3650 enables deletion of runs older than that many days at startup and once per day. Related records are deleted through SQLite foreign-key cascades. Choose this setting deliberately; it permanently deletes old research history.
+
 ## Run states and evidence rules
 
 - **COMPLETED:** the critic score is at least 85, required questions are answered, source citations validate, and no critical errors or conflicts remain.
