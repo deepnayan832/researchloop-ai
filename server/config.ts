@@ -50,6 +50,11 @@ export function loadConfig(cwd = process.cwd()): AppConfig {
     }
     return value;
   }
+  const retentionRaw = process.env.RESEARCH_RETENTION_DAYS;
+  const researchRetentionDays = retentionRaw === undefined || retentionRaw.trim() === "" ? 0 : Number(retentionRaw);
+  if (!Number.isInteger(researchRetentionDays) || researchRetentionDays < 0 || researchRetentionDays > 3650) {
+    throw new Error("RESEARCH_RETENTION_DAYS must be an integer between 0 and 3650 (0 disables automatic deletion).");
+  }
   return {
     port,
     host: process.env.HOST || "127.0.0.1",
@@ -66,7 +71,8 @@ export function loadConfig(cwd = process.cwd()): AppConfig {
     trustProxy: process.env.TRUST_PROXY === "true",
     maxConcurrentResearchRuns: positiveInteger("MAX_CONCURRENT_RESEARCH_RUNS", 3, 100),
     researchRunsPerMinute: positiveInteger("RESEARCH_RUNS_PER_MINUTE", 5, 1000),
-    sessionRequestsPerMinute: positiveInteger("SESSION_REQUESTS_PER_MINUTE", 10, 1000)
+    sessionRequestsPerMinute: positiveInteger("SESSION_REQUESTS_PER_MINUTE", 10, 1000),
+    researchRetentionDays
   };
 }
 
