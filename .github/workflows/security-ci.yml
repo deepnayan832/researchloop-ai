@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "security/**"
+      - "deploy/**"
   pull_request:
     branches:
       - main
@@ -32,3 +33,7 @@ jobs:
         run: npm test
       - name: Build production container
         run: docker build --tag researchloop-ai:ci .
+      - name: Validate Compose deployment configuration
+        run: |
+          cp .env.example .env
+          APP_ACCESS_PASSWORD=ci-only-test-secret-with-more-than-16-chars docker compose config --quiet
