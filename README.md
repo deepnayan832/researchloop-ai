@@ -99,7 +99,7 @@ Run the app:
 
     npm run dev
 
-Open http://127.0.0.1:8787. npm run server:dev is an alias. After building, npm run server:start starts the compiled server. The backend serves the existing HTML, CSS, and JavaScript, so the browser uses same-origin API requests.
+Open http://127.0.0.1:8787. npm run server:dev is an alias. After building, npm run server:start starts the compiled server. The backend serves the existing HTML, CSS, JavaScript, and logo asset, so the browser uses same-origin API requests. For a public production instance, configure `NODE_ENV=production`, `APP_ACCESS_PASSWORD`, and `PUBLIC_ORIGIN` as described below before starting the service.
 
 ## Commands
 
@@ -126,7 +126,40 @@ npm run evaluate executes the deterministic offline cases in evaluation/cases/. 
 - GET /api/research/runs/:id/export — report JSON with sources, evidence, iterations, critiques, and metrics.
 - GET /api/watchlist, POST /api/watchlist, DELETE /api/watchlist/:symbol — SQLite-backed watchlist. Adding a symbol does not verify its listing.
 
-Write endpoints require a same-origin HttpOnly session and reject cross-origin writes. This protects a local single-user workspace; it is not multi-user identity or account management.
+Write endpoints require a same-origin HttpOnly session and reject requests with a mismatched or missing Origin header. In local development the session is intentionally unauthenticated; it is not multi-user identity or account management.
+
+### Production deployment security
+
+**Do not expose the backend publicly without setting the access gate.** When `NODE_ENV=production`, the server refuses to start unless `APP_ACCESS_PASSWORD` is at least 16 characters and `PUBLIC_ORIGIN` is an HTTPS origin such as `https://research.example.com`. The app uses the browser's native HTTP Basic Authentication prompt with username `researchloop` and the configured password. This is a shared-password gate for a single-user/private workspace, not a multi-user account system. Keep the Node service behind HTTPS and preferably bind it to a private interface behind your reverse proxy.
+
+Set `PUBLIC_ORIGIN` to the browser-visible origin when TLS terminates at a proxy. This canonical value is used for origin validation, HSTS, and the cookie `Secure` attribute; the server does not blindly trust `X-Forwarded-Proto`. Set `TRUST_PROXY=true` only when the edge proxy overwrites incoming spoofed `X-Forwarded-For` values with the actual client address. Otherwise, per-IP rate limits will use the direct peer address (often the proxy itself).
+
+Default controls are 5 research runs per IP per minute, 10 session requests per IP per minute, and at most 3 concurrent research runs across the server. Tune with `RESEARCH_RUNS_PER_MINUTE`, `SESSION_REQUESTS_PER_MINUTE`, and `MAX_CONCURRENT_RESEARCH_RUNS`. These in-memory limits are intended for a single Node process; multi-instance hosting requires shared rate-limit/session state or edge-level controls.
+
+Research history retention is opt-in: `RESEARCH_RETENTION_DAYS=0` keeps saved history indefinitely, while a value from 1 to 3650 enables deletion of runs older than that many days at startup and once per day. Related records are deleted through SQLite foreign-key cascades. Choose this setting deliberately; it permanently deletes old research history.
+
+### Container deployment
+
+The repository includes a production `Dockerfile`. Run it behind a TLS-terminating reverse proxy so the Node port is not directly exposed to the internet. Keep a persistent volume mounted at `/app/data` for SQLite and inject secrets through the host's secret manager rather than baking them into the image.
+
+```sh
+docker build -t researchloop-ai .
+docker run --rm \
+  -p 127.0.0.1:8787:8787 \
+  -e NODE_ENV=production \
+  -e APP_ACCESS_PASSWORD="<long-random-secret-at-least-16-characters>" \
+  -e PUBLIC_ORIGIN="https://your-real-domain.example" \
+  -e HOST=0.0.0.0 \
+  -e PORT=8787 \
+  -e DATABASE_PATH=/app/data/researchloop.sqlite \
+  -e LLM_API_KEY="<provider-key>" \
+  -e LLM_MODEL="<model-id>" \
+  -e TAVILY_API_KEY="<tavily-key>" \
+  -v researchloop-data:/app/data \
+  researchloop-ai
+```
+
+Replace the example domain and placeholders before deploying. Set the service's public origin to the exact HTTPS origin users visit. The loopback-only port binding is intended for a reverse proxy on the same host; managed container platforms should use their documented private service/networking configuration instead. The current public GitHub Pages site will remain demo-only until a Node-capable backend is deployed and the public web entry point is routed to that backend.
 
 ## Run states and evidence rules
 

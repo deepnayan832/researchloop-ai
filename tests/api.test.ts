@@ -54,6 +54,12 @@ test("API session auth, request validation, SSE replay, persistence, watchlist, 
   });
   assert.equal(crossOrigin.status, 403);
 
+  const missingOrigin = await fetch(base + "/api/watchlist", {
+    method: "POST", headers: { Cookie: cookie!, "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol: "NO_ORIGIN" })
+  });
+  assert.equal(missingOrigin.status, 403);
+
   const added = await fetch(base + "/api/watchlist", {
     method: "POST", headers: { Cookie: cookie!, Origin: base, "Content-Type": "application/json" },
     body: JSON.stringify({ symbol: "ABC", exchange: "NSE" })
@@ -114,4 +120,100 @@ test("health endpoints are available without browser session credentials", async
   assert.equal(result.market_data, "missing");
   assert.equal(result.database, "healthy");
   assert.equal(result.database_detail, "The local SQLite database is connected.");
+});
+
+
+test("production access gate, trusted public origin, secure cookie, and headers", async (t) => {
+  const store = new ResearchStore(":memory:");
+  const protectedConfig: AppConfig = {
+    ...appConfig,
+    accessPassword: "unit-test-password-long-enough",
+    publicOrigin: "https://research.example.test"
+  };
+  const server = createResearchServer({
+    config: protectedConfig,
+    store,
+    orchestrator: new ResearchOrchestrator(store, protectedConfig)
+  });
+  const base = await listen(server);
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  });
+
+  const blocked = await fetch(base + "/api/health");
+  assert.equal(blocked.status, 401);
+  assert.match(blocked.headers.get("www-authenticate") || "", /Basic/);
+
+  const authorization = "Basic " + Buffer.from("researchloop:unit-test-password-long-enough").toString("base64");
+  const health = await fetch(base + "/api/health", { headers: { Authorization: authorization } });
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get("strict-transport-security"), "max-age=31536000");
+  assert.equal(health.headers.get("permissions-policy"), "camera=(), microphone=(), geolocation=(), payment=()");
+  assert.equal(health.headers.get("cross-origin-opener-policy"), "same-origin");
+  assert.equal(health.headers.get("cross-origin-resource-policy"), "same-origin");
+
+  const session = await fetch(base + "/api/session", { headers: { Authorization: authorization } });
+  assert.equal(session.status, 200);
+  assert.match(session.headers.get("set-cookie") || "", /; Secure(?:;|$)/);
+
+  const cookie = session.headers.get("set-cookie")?.split(";")[0];
+  const accepted = await fetch(base + "/api/watchlist", {
+    method: "POST",
+    headers: {
+      Authorization: authorization,
+      Cookie: cookie!,
+      Origin: "https://research.example.test",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ symbol: "HTTPSOK", exchange: "NSE" })
+  });
+  assert.equal(accepted.status, 201);
+});
+
+test("per-IP session and research sliding-window limits return 429", async (t) => {
+  const store = new ResearchStore(":memory:");
+  const rateConfig: AppConfig = {
+    ...appConfig,
+    sessionRequestsPerMinute: 10,
+    researchRunsPerMinute: 5,
+    maxConcurrentResearchRuns: 10
+  };
+  const server = createResearchServer({
+    config: rateConfig,
+    store,
+    orchestrator: new ResearchOrchestrator(store, rateConfig)
+  });
+  const base = await listen(server);
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  });
+
+  const session = await fetch(base + "/api/session");
+  const cookie = session.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  for (let i = 0; i < 5; i += 1) {
+    const researchResponse: Response = await fetch(base + "/api/research/run", {
+      method: "POST",
+      headers: { Cookie: cookie!, Origin: base, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "Rate-limit test request number " + i, exchange: "NSE" })
+    });
+    assert.equal(researchResponse.status, 202);
+  }
+  const limitedResearch = await fetch(base + "/api/research/run", {
+    method: "POST",
+    headers: { Cookie: cookie!, Origin: base, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "The sixth rate-limit test request", exchange: "NSE" })
+  });
+  assert.equal(limitedResearch.status, 429);
+  assert.equal(limitedResearch.headers.get("retry-after"), "60");
+
+  for (let i = 0; i < 9; i += 1) {
+    assert.equal((await fetch(base + "/api/session")).status, 200);
+  }
+  const limitedSession = await fetch(base + "/api/session");
+  assert.equal(limitedSession.status, 429);
+  assert.equal(limitedSession.headers.get("retry-after"), "60");
 });

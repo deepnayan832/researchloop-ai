@@ -352,6 +352,14 @@ export class ResearchStore {
     return Number(this.db.prepare("DELETE FROM watchlist WHERE symbol=?").run(symbol).changes) > 0;
   }
 
+  deleteRunsOlderThan(days: number): number {
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      throw new RangeError("Retention days must be an integer between 1 and 3650.");
+    }
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    return Number(this.db.prepare("DELETE FROM research_runs WHERE created_at < ?").run(cutoff).changes);
+  }
+
   health(): boolean {
     return Number((this.db.prepare("SELECT 1 AS healthy").get() as SqlRow).healthy) === 1;
   }
