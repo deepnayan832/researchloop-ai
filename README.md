@@ -161,6 +161,12 @@ docker run --rm \
 
 Replace the example domain and placeholders before deploying. Set the service's public origin to the exact HTTPS origin users visit. The loopback-only port binding is intended for a reverse proxy on the same host; managed container platforms should use their documented private service/networking configuration instead. The current public GitHub Pages site will remain demo-only until a Node-capable backend is deployed and the public web entry point is routed to that backend.
 
+### Render staging deployment
+
+A `render.yaml` Blueprint is included for a **free staging service**. Connect the GitHub repository to Render and create a Blueprint from the repository's `main` branch. When prompted, set a strong `APP_ACCESS_PASSWORD`, `LLM_API_KEY`, `LLM_MODEL`, and `TAVILY_API_KEY` if live research is required. Render supplies `RENDER_EXTERNAL_URL`; the server uses it automatically as the public HTTPS origin unless `PUBLIC_ORIGIN` is explicitly set.
+
+**Important:** the free Render filesystem is ephemeral, so SQLite history can be lost when the instance is replaced or redeployed. Treat this free Blueprint as staging/demo only. For production, upgrade to a plan that supports a persistent disk, attach the disk at `/app/data`, confirm the expected cost in Render before creating/upgrading the service, and use a strong password stored in Render's environment settings. Keep automatic deploys disabled until you have reviewed the initial deployment and its environment variables.
+
 ## Run states and evidence rules
 
 - **COMPLETED:** the critic score is at least 85, required questions are answered, source citations validate, and no critical errors or conflicts remain.
