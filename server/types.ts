@@ -219,6 +219,8 @@ export interface AppConfig {
   maxConcurrentResearchRuns?: number;
   researchRunsPerMinute?: number;
   sessionRequestsPerMinute?: number;
+  /** Optional retention window; zero disables automatic deletion. */
+  researchRetentionDays?: number;
 }
 
 export interface ProviderUsage {
