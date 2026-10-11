@@ -20,7 +20,7 @@ function pruneResearchHistory(): void {
       result: "pruned",
       deleted_runs: deleted,
       retention_days: days
-    }) + "\\n");
+    }) + "\n");
   }
 }
 
