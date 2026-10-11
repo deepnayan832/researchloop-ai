@@ -64,3 +64,25 @@ test("duplicate source URLs are ignored", () => {
     store.close();
   }
 });
+
+
+test("research retention deletes old runs and cascades related records", () => {
+  const store = new ResearchStore(":memory:");
+  try {
+    const oldRun = store.createRun("An old research request to be retained only briefly.", "NSE");
+    store.db.prepare("UPDATE research_runs SET created_at=? WHERE id=?")
+      .run(new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), oldRun.id);
+    const recentRun = store.createRun("A recent research request that must remain saved.", "BSE");
+
+    assert.equal(store.deleteRunsOlderThan(7), 1);
+    assert.equal(store.getRun(oldRun.id), null);
+    assert.ok(store.getRun(recentRun.id));
+    assert.equal(
+      Number(store.db.prepare("SELECT COUNT(*) AS count FROM run_state WHERE run_id=?").get(oldRun.id)?.count),
+      0
+    );
+    assert.throws(() => store.deleteRunsOlderThan(0), /Retention days/);
+  } finally {
+    store.close();
+  }
+});
