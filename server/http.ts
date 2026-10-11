@@ -26,20 +26,24 @@ class SlidingWindowLimiter {
 
   allow(key: string, limit: number, windowMs = 60_000): boolean {
     const now = Date.now();
-    const recent = (this.requests.get(key) || []).filter((timestamp) => now - timestamp < windowMs);
+    const previous = this.requests.get(key);
+    const recent = (previous || []).filter((timestamp) => now - timestamp < windowMs);
+    if (!previous && this.requests.size >= 10_000) {
+      for (const [candidate, timestamps] of this.requests) {
+        if (timestamps.length === 0 || now - timestamps[timestamps.length - 1]! >= windowMs) {
+          this.requests.delete(candidate);
+        }
+      }
+      // Bound limiter memory under distributed requests. While all buckets are active,
+      // fail closed for new identities rather than allowing the map to grow without limit.
+      if (!this.requests.has(key) && this.requests.size >= 10_000) return false;
+    }
     if (recent.length >= limit) {
       this.requests.set(key, recent);
       return false;
     }
     recent.push(now);
     this.requests.set(key, recent);
-    if (this.requests.size > 10_000) {
-      for (const [candidate, timestamps] of this.requests) {
-        if (timestamps.length === 0 || now - timestamps[timestamps.length - 1]! >= windowMs) {
-          this.requests.delete(candidate);
-        }
-      }
-    }
     return true;
   }
 }
