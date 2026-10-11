@@ -151,6 +151,10 @@ export class ResearchOrchestrator {
     };
   }
 
+  get activeRunCount(): number {
+    return this.running.size;
+  }
+
   start(runId: string): void {
     if (this.running.has(runId)) return;
     this.running.add(runId);
