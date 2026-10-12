@@ -27,10 +27,14 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Audit dependency vulnerabilities
+        run: npm audit --audit-level=high
       - name: TypeScript build
         run: npm run build
       - name: Test suite
         run: npm test
+      - name: Deterministic offline evaluation
+        run: npm run evaluate
       - name: Build production container
         run: docker build --tag researchloop-ai:ci .
       - name: Validate Compose deployment configuration
