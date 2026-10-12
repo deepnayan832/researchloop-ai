@@ -250,14 +250,21 @@ export function createResearchServer(input: {
 }): Server {
   const root = input.staticRoot || process.cwd();
   const limiter = new SlidingWindowLimiter();
+  const basicAuthLimiter = new SlidingWindowLimiter();
   const server = createServer(async (request, response) => {
     const method = request.method || "GET";
     setSecurityHeaders(response, isSecureRequest(request, input.config));
     try {
       const requestUrl = new URL(request.url || "/", "http://" + (request.headers.host || "localhost"));
       const pathname = requestUrl.pathname;
+      const address = clientAddress(request, input.config);
       // Leave the basic health probe public so managed hosts can verify readiness.
+      // Failed Basic Auth attempts are rate-limited independently of the application session.
       if (pathname !== "/api/health" && input.config.accessPassword && !hasValidBasicAuth(request, input.config.accessPassword)) {
+        if (!basicAuthLimiter.allow("basic-auth:" + address, 10)) {
+          jsonResponse(response, 429, { error: "Too many authentication attempts. Try again in a minute." }, { "Retry-After": "60" });
+          return;
+        }
         response.writeHead(401, {
           "WWW-Authenticate": 'Basic realm="ResearchLoop AI", charset="UTF-8"',
           "Content-Type": "text/plain; charset=utf-8",
@@ -266,7 +273,6 @@ export function createResearchServer(input: {
         response.end("Authentication required.");
         return;
       }
-      const address = clientAddress(request, input.config);
       if (method === "GET" && pathname === "/api/session" &&
           !limiter.allow("session:" + address, input.config.sessionRequestsPerMinute || 10)) {
         jsonResponse(response, 429, { error: "Too many session requests. Try again in a minute." }, { "Retry-After": "60" });
