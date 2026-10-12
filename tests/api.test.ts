@@ -221,3 +221,43 @@ test("per-IP session and research sliding-window limits return 429", async (t) =
   assert.equal(limitedSession.status, 429);
   assert.equal(limitedSession.headers.get("retry-after"), "60");
 });
+
+
+test("production Basic Auth throttles repeated failures without blocking a valid password", async (t) => {
+  const store = new ResearchStore(":memory:");
+  const protectedConfig: AppConfig = {
+    ...appConfig,
+    accessPassword: "unit-test-password-long-enough",
+    publicOrigin: "https://research.example.test"
+  };
+  const server = createResearchServer({
+    config: protectedConfig,
+    store,
+    orchestrator: new ResearchOrchestrator(store, protectedConfig)
+  });
+  const base = await listen(server);
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  });
+
+  const invalidAuthorization = "Basic " + Buffer.from("researchloop:wrong-password").toString("base64");
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await fetch(base + "/api/providers/health", {
+      headers: { Authorization: invalidAuthorization }
+    });
+    assert.equal(response.status, 401);
+  }
+
+  const limited = await fetch(base + "/api/providers/health", {
+    headers: { Authorization: invalidAuthorization }
+  });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("retry-after"), "60");
+
+  const validAuthorization = "Basic " + Buffer.from("researchloop:unit-test-password-long-enough").toString("base64");
+  const valid = await fetch(base + "/api/providers/health", {
+    headers: { Authorization: validAuthorization }
+  });
+  assert.equal(valid.status, 200);
+});
