@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1322">
+  <meta name="description" content="Interactive liquid glass lens demo.">
+  <title>Liquid Glass Demo</title>
+  <link rel="stylesheet" href="liquid-glass-demo.css">
+  <script src="liquid-glass-demo.js" defer></script>
+</head>
+<body>
+  <main class="liquid-demo">
+    <header class="liquid-demo__header">
+      <a class="liquid-demo__back" href="index.html" aria-label="Back to project homepage">← Back to project</a>
+      <div class="liquid-demo__intro">
+        <span class="liquid-demo__eyebrow">INTERACTIVE MATERIAL STUDY</span>
+        <h1>Liquid Glass</h1>
+        <p>Drag the lens to bend the scene. Switch its shape to compare the refraction.</p>
+      </div>
+      <button class="liquid-demo__toggle" id="liquid-shape-toggle" type="button" aria-pressed="false">Switch to pill</button>
+    </header>
+
+    <section class="liquid-demo__stage" id="liquid-stage" aria-label="Interactive liquid glass demo">
+      <div class="liquid-demo__art" aria-hidden="true">
+        <span class="liquid-demo__art-shape liquid-demo__art-shape--one"></span>
+        <span class="liquid-demo__art-shape liquid-demo__art-shape--two"></span>
+        <span class="liquid-demo__art-shape liquid-demo__art-shape--three"></span>
+        <span class="liquid-demo__art-shape liquid-demo__art-shape--four"></span>
+        <span class="liquid-demo__art-grid"></span>
+      </div>
+      <div class="liquid-demo__copy" aria-hidden="true">
+        <p>Bend the<br>light.</p>
+        <div class="liquid-demo__bars" id="liquid-bars"></div>
+      </div>
+      <button class="liquid-demo__lens" id="liquid-lens" type="button" aria-label="Drag the liquid glass lens. Use arrow keys to move it.">
+        <span class="liquid-demo__surface" id="liquid-surface" aria-hidden="true"></span>
+      </button>
+    </section>
+
+    <p class="liquid-demo__hint">The lens is draggable with a mouse, touch, or keyboard. The effect falls back to frosted glass on browsers that do not support SVG backdrop filters.</p>
+  </main>
+</body>
+</html>
