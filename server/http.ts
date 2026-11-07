@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig, Exchange, ResearchRun } from "./types.js";
@@ -76,9 +76,15 @@ function hasValidBasicAuth(request: IncomingMessage, expectedPassword: string): 
   catch { return false; }
   const separator = decoded.indexOf(":");
   if (separator < 0 || decoded.slice(0, separator) !== "researchloop") return false;
-  const supplied = createHash("sha256").update(decoded.slice(separator + 1)).digest();
-  const expected = createHash("sha256").update(expectedPassword).digest();
-  return timingSafeEqual(supplied, expected);
+  const suppliedPassword = Buffer.from(decoded.slice(separator + 1), "utf8");
+  const expectedPasswordBytes = Buffer.from(expectedPassword, "utf8");
+  const maxBytes = 256;
+  if (suppliedPassword.length > maxBytes || expectedPasswordBytes.length > maxBytes) return false;
+  const supplied = Buffer.alloc(maxBytes);
+  const expected = Buffer.alloc(maxBytes);
+  suppliedPassword.copy(supplied);
+  expectedPasswordBytes.copy(expected);
+  return timingSafeEqual(supplied, expected) && suppliedPassword.length === expectedPasswordBytes.length;
 }
 
 function cookieValue(request: IncomingMessage, name: string): string | null {
