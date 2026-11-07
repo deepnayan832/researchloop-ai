@@ -78,8 +78,8 @@ function hasValidBasicAuth(request: IncomingMessage, expectedPassword: string): 
   if (separator < 0 || decoded.slice(0, separator) !== "researchloop") return false;
   const suppliedPassword = Buffer.from(decoded.slice(separator + 1), "utf8");
   const expectedPasswordBytes = Buffer.from(expectedPassword, "utf8");
-  const maxBytes = 256;
-  if (suppliedPassword.length > maxBytes || expectedPasswordBytes.length > maxBytes) return false;
+  const maxBytes = Math.max(256, expectedPasswordBytes.length);
+  if (suppliedPassword.length > maxBytes) return false;
   const supplied = Buffer.alloc(maxBytes);
   const expected = Buffer.alloc(maxBytes);
   suppliedPassword.copy(supplied);
