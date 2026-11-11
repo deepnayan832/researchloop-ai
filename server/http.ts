@@ -184,7 +184,7 @@ async function serveStatic(urlPath: string, response: ServerResponse, root: stri
   try { decoded = decodeURIComponent(urlPath); }
   catch { throw new HttpError(400, "Invalid URL path."); }
   if (decoded === "/") decoded = "/index.html";
-  const publicFiles = new Set(["/index.html", "/app.js", "/styles.css", "/assets/research-loop-ai-logo.svg", "/liquid-glass-demo.html", "/liquid-glass-demo.css", "/liquid-glass-demo.js"]);
+  const publicFiles = new Set(["/index.html", "/app.js", "/styles.css", "/styles-3d.css", "/assets/research-loop-ai-logo.svg", "/liquid-glass-demo.html", "/liquid-glass-demo.css", "/liquid-glass-demo.js"]);
   const isArtifact = decoded.startsWith("/artifacts/screenshots/") &&
     /\.(png|jpg|jpeg|webp|md)$/i.test(decoded) && !decoded.includes("..");
   if (!publicFiles.has(decoded) && !isArtifact) throw new HttpError(404, "Not found.");

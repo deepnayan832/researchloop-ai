@@ -122,6 +122,20 @@ test("health endpoints are available without browser session credentials", async
   assert.equal(result.database_detail, "The local SQLite database is connected.");
 });
 
+test("serves the homepage 3D stylesheet", async (t) => {
+  const store = new ResearchStore(":memory:");
+  const server = createResearchServer({ config: appConfig, store, orchestrator: new ResearchOrchestrator(store, appConfig) });
+  const base = await listen(server);
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  });
+
+  const stylesheet = await fetch(base + "/styles-3d.css");
+  assert.equal(stylesheet.status, 200);
+  assert.match(stylesheet.headers.get("content-type") || "", /^text\/css/);
+});
+
 
 test("production access gate, trusted public origin, secure cookie, and headers", async (t) => {
   const store = new ResearchStore(":memory:");
