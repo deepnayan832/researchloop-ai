@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig, Exchange, ResearchRun } from "./types.js";
@@ -67,18 +67,21 @@ function clientAddress(request: IncomingMessage, config: AppConfig): string {
   return request.socket.remoteAddress || "unknown";
 }
 
-function hasValidBasicAuth(request: IncomingMessage, expectedPassword: string): boolean {
-  const authorization = request.headers.authorization || "";
-  const match = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(authorization);
-  if (!match) return false;
-  let decoded: string;
-  try { decoded = Buffer.from(match[1]!, "base64").toString("utf8"); }
-  catch { return false; }
-  const separator = decoded.indexOf(":");
-  if (separator < 0 || decoded.slice(0, separator) !== "researchloop") return false;
-  const supplied = createHash("sha256").update(decoded.slice(separator + 1)).digest();
-  const expected = createHash("sha256").update(expectedPassword).digest();
-  return timingSafeEqual(supplied, expected);
+function createBasicAuthValidator(expectedPassword: string): (request: IncomingMessage) => boolean {
+  const salt = randomBytes(16);
+  const expected = scryptSync(expectedPassword, salt, 32);
+  return (request: IncomingMessage): boolean => {
+    const authorization = request.headers.authorization || "";
+    const match = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(authorization);
+    if (!match) return false;
+    let decoded: string;
+    try { decoded = Buffer.from(match[1]!, "base64").toString("utf8"); }
+    catch { return false; }
+    const separator = decoded.indexOf(":");
+    if (separator < 0 || decoded.slice(0, separator) !== "researchloop") return false;
+    const supplied = scryptSync(decoded.slice(separator + 1), salt, 32);
+    return timingSafeEqual(supplied, expected);
+  };
 }
 
 function cookieValue(request: IncomingMessage, name: string): string | null {
@@ -251,6 +254,9 @@ export function createResearchServer(input: {
   const root = input.staticRoot || process.cwd();
   const limiter = new SlidingWindowLimiter();
   const basicAuthLimiter = new SlidingWindowLimiter();
+  const basicAuthValidator = input.config.accessPassword
+    ? createBasicAuthValidator(input.config.accessPassword)
+    : undefined;
   const server = createServer(async (request, response) => {
     const method = request.method || "GET";
     setSecurityHeaders(response, isSecureRequest(request, input.config));
@@ -260,7 +266,7 @@ export function createResearchServer(input: {
       const address = clientAddress(request, input.config);
       // Leave the basic health probe public so managed hosts can verify readiness.
       // Failed Basic Auth attempts are rate-limited independently of the application session.
-      if (pathname !== "/api/health" && input.config.accessPassword && !hasValidBasicAuth(request, input.config.accessPassword)) {
+      if (pathname !== "/api/health" && basicAuthValidator && !basicAuthValidator(request)) {
         if (!basicAuthLimiter.allow("basic-auth:" + address, 10)) {
           jsonResponse(response, 429, { error: "Too many authentication attempts. Try again in a minute." }, { "Retry-After": "60" });
           return;
