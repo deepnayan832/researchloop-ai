@@ -122,7 +122,7 @@ test("health endpoints are available without browser session credentials", async
   assert.equal(result.database_detail, "The local SQLite database is connected.");
 });
 
-test("serves the homepage 3D stylesheet", async (t) => {
+test("serves the dashboard surface stylesheet", async (t) => {
   const store = new ResearchStore(":memory:");
   const server = createResearchServer({ config: appConfig, store, orchestrator: new ResearchOrchestrator(store, appConfig) });
   const base = await listen(server);

@@ -54,6 +54,25 @@ const toastNode = document.getElementById('toast');
 const sidebar = document.getElementById('sidebar');
 const mobileMenu = document.getElementById('mobile-menu');
 const backdrop = document.getElementById('mobile-backdrop');
+const backendStatus = document.getElementById('backend-status');
+const backendStatusLabel = document.getElementById('backend-status-label');
+const sidebarServerStatus = document.getElementById('sidebar-server-status');
+const sidebarServerDot = document.getElementById('sidebar-server-dot');
+
+function setBackendStatus(available) {
+  state.backendAvailable = available;
+  const status = available ? 'connected' : 'offline';
+  const label = available ? 'Backend connected' : 'Backend unavailable';
+  if (backendStatus) backendStatus.dataset.status = status;
+  if (backendStatusLabel) backendStatusLabel.textContent = label;
+  if (sidebarServerStatus) sidebarServerStatus.textContent = available
+    ? state.providerHealth.database === 'healthy' ? 'SQLite · connected' : 'Server connected'
+    : 'Backend unavailable';
+  if (sidebarServerDot) {
+    sidebarServerDot.dataset.status = status;
+    sidebarServerDot.title = label;
+  }
+}
 
 function escapeHtml(value) {
   return String(value == null ? '' : value)
@@ -86,7 +105,7 @@ function icon(name) {
 }
 
 function getAllRuns() {
-  return DEMO_RUNS.concat(state.runs);
+  return state.runs.length ? state.runs : state.backendAvailable ? [] : DEMO_RUNS;
 }
 
 function getRun(id) {
@@ -98,7 +117,7 @@ function getRun(id) {
 }
 
 function getLatestRun() {
-  return state.runs.length ? state.runs[0] : DEMO_RUN;
+  return state.runs.length ? state.runs[0] : state.backendAvailable ? null : DEMO_RUN;
 }
 
 function displayDate(run) {
@@ -138,17 +157,27 @@ function showToast(message) {
   state.toastTimer = window.setTimeout(function () { toastNode.classList.remove('is-visible'); }, 3400);
 }
 
-function closeMobileNav() {
+function closeMobileNav(restoreFocus) {
+  const wasOpen = sidebar.classList.contains('is-open');
   sidebar.classList.remove('is-open');
   backdrop.classList.remove('is-visible');
   mobileMenu.setAttribute('aria-expanded', 'false');
+  mobileMenu.setAttribute('aria-label', 'Open navigation');
+  if (wasOpen && restoreFocus !== false) mobileMenu.focus();
 }
 
 function setView(view) {
   state.activeView = view;
-  closeMobileNav();
+  closeMobileNav(false);
   renderApp();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const heading = content.querySelector('h1');
+  if (heading) {
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+  } else {
+    content.focus({ preventScroll: true });
+  }
+  window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
 function stepIndex(run) {
@@ -159,18 +188,24 @@ function stepIndex(run) {
 }
 
 function renderProcess(run) {
+  run = run || { trace: [], stage: 'plan', status: 'idle' };
   const labels = [
     ['Plan', 'Interpret query and define scope'],
     ['Research', 'Find and analyze evidence'],
     ['Critique', 'Stress test and identify gaps'],
     ['Finalize', 'Synthesize with limitations']
   ];
+  const stageMatches = [['plan'], ['research', 'evidence', 'analysis', 'retry'], ['critique'], ['finalize']];
   const active = stepIndex(run);
-  return '<div class="process-panel"><div class="process-track">' + labels.map(function (item, index) {
-    const className = index < active ? 'is-done' : index === active ? 'is-active' : '';
-    const marker = index < active ? icon('check') : String(index + 1);
-    return '<div class="process-step ' + className + '"><div class="step-marker">' + marker + '</div><div class="step-title">' + item[0] + '</div><div class="step-note">' + item[1] + '</div></div>';
-  }).join('') + '</div></div>';
+  return '<section class="process-panel" aria-label="Research workflow"><ol class="process-track">' + labels.map(function (item, index) {
+    const stage = (run.trace || []).slice().reverse().find(function (entry) { return stageMatches[index].includes(entry.stage); });
+    const done = !run.isDemo && (Boolean(stage && ['completed', 'limited', 'skipped'].includes(stage.status)) || (run.status === 'running' && index < active));
+    const isActive = !run.isDemo && run.status === 'running' && index === active;
+    const className = run.isDemo ? 'is-example' : done ? 'is-done' : isActive ? 'is-active' : '';
+    const stepStatus = run.isDemo ? 'Example only' : stage && stage.status === 'skipped' ? 'Skipped' : stage && stage.status === 'limited' ? 'Complete with limitations' : done ? 'Complete' : isActive ? 'In progress' : 'Not started';
+    const marker = done ? icon('check') : String(index + 1);
+    return '<li class="process-step ' + className + '"' + (isActive ? ' aria-current="step"' : '') + '><div class="step-marker" aria-hidden="true">' + marker + '</div><div class="step-title">' + item[0] + '</div><div class="step-note">' + item[1] + '</div><span class="sr-only">' + stepStatus + '</span></li>';
+  }).join('') + '</ol></section>';
 }
 
 function timelineMarkup(run) {
@@ -181,13 +216,13 @@ function timelineMarkup(run) {
     { key: 'finalize', title: 'Finalize', matches: ['finalize'], fallback: 'Waiting for the quality gate.' }
   ];
   const current = stepIndex(run);
-  return '<ol class="timeline">' + stages.map(function (item, index) {
+  return '<ol class="timeline" aria-label="Research stage details">' + stages.map(function (item, index) {
     const traceItem = (run.trace || []).slice().reverse().find(function (entry) { return item.matches.includes(entry.stage); });
     const isDone = traceItem && ['completed', 'limited', 'skipped'].includes(traceItem.status);
-    const done = run.isDemo ? run.status !== 'running' : Boolean(isDone || (run.status === 'running' && index < current));
-    const active = run.status === 'running' && index === current;
-    const nodeClass = done ? 'done' : active ? 'current' : '';
-    const mark = done ? icon('check') : '';
+    const done = !run.isDemo && Boolean(isDone || (run.status === 'running' && index < current));
+    const active = !run.isDemo && run.status === 'running' && index === current;
+    const nodeClass = run.isDemo ? 'example' : done ? 'done' : active ? 'current' : '';
+    const mark = done ? icon('check') : run.isDemo ? String(index + 1) : '';
     const detail = traceItem ? traceItem.detail : item.fallback;
     const title = traceItem && traceItem.title ? traceItem.title : item.title;
     return '<li class="timeline-item"><span class="timeline-node ' + nodeClass + '">' + mark + '</span><div class="timeline-copy"><strong>' + escapeHtml(title) + (run.status === 'running' && active ? ' in progress' : '') + '</strong><span>' + escapeHtml(detail) + '</span></div><span class="timeline-time">' + (traceItem ? (run.isDemo ? 'Example' : 'Logged') : '') + '</span></li>';
@@ -203,8 +238,8 @@ function runRow(run) {
 
 function renderRunTable(runs, showFooter) {
   const rows = runs.map(runRow).join('');
-  const empty = '<tr><td class="table-empty" colspan="5">No research runs match this view.</td></tr>';
-  return '<div class="table-scroll"><table class="data-table run-table"><thead><tr><th>Research item</th><th>Research question</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div>' + (showFooter ? '<div class="panel-table-foot"><span>Examples and server-saved runs</span><span>' + runs.length + ' item' + (runs.length === 1 ? '' : 's') + '</span></div>' : '');
+  const empty = '<tr><td class="table-empty" colspan="5"><strong>No saved research runs yet</strong><span>Start a research loop above to see its status and report here.</span></td></tr>';
+  return '<div class="table-scroll" role="region" aria-label="Research runs table" tabindex="0"><table class="data-table run-table"><thead><tr><th scope="col">Research item</th><th scope="col">Research question</th><th scope="col">Status</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open report</span></th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div>' + (showFooter ? '<div class="panel-table-foot"><span>' + (runs.some(function (run) { return run.isDemo; }) ? 'Example records · no live research data' : 'Server-saved research runs') + '</span><span>' + runs.length + ' item' + (runs.length === 1 ? '' : 's') + '</span></div>' : '');
 }
 
 function renderNotice(compact, run) {
@@ -220,25 +255,30 @@ function renderOverview() {
   const latest = getLatestRun();
   const runs = getAllRuns();
   const buttonText = state.isRunning ? 'Researching…' : 'Start research';
-  const disabled = state.isRunning ? ' disabled' : '';
-  return '<section class="query-section"><h1>Start a research loop</h1><form id="research-form" class="query-form">' +
-    '<label class="query-control"><span class="sr-only">Research question</span>' + icon('search') + '<textarea id="research-query" name="query" minlength="12" required placeholder="Ask about a company, market move, or fundamental trend…"></textarea></label>' +
-    '<label class="query-select-wrap"><span class="sr-only">Exchange</span><select class="query-select" name="exchange"><option value="NSE">NSE</option><option value="BSE">BSE</option><option value="NSE / BSE">NSE / BSE</option></select></label>' +
+  const disabled = state.isRunning || !state.backendAvailable ? ' disabled' : '';
+  const backendMessage = state.backendAvailable
+    ? state.providerHealth.database === 'healthy' ? 'Runs and watchlist are saved in SQLite. Provider availability is shown in Settings.' : 'Backend connected; database health needs attention. See Settings for provider status.'
+    : 'Backend is unavailable. Start the local server to run research.';
+  const latestPanel = latest
+    ? '<div class="panel-content"><div class="run-detail-head"><div><strong>' + (latest.isDemo ? escapeHtml(latest.label) : 'Research request') + '</strong><span>' + escapeHtml(latest.exchange || 'NSE / BSE') + ' · ' + statusText(latest) + '</span></div><span class="run-detail-date">' + (latest.isDemo ? 'No live data' : displayTime(latest)) + '</span></div>' +
+      '<p class="run-question">' + escapeHtml(latest.query) + '</p><div class="iteration-label"><span>Iteration ' + (latest.iterationCount == null ? 1 : latest.iterationCount) + ' of ' + MAX_ITERATIONS + '</span><span>' + (latest.status === 'running' ? 'Research in progress' : latest.isDemo ? 'Example only' : String(latest.status).toUpperCase()) + '</span></div>' +
+      timelineMarkup(latest) + '<button class="button button-primary panel-full-button" type="button" data-open-report="' + escapeHtml(latest.id) + '">Open report ' + icon('arrow') + '</button></div>'
+    : '<div class="panel-content"><div class="panel-empty-state latest-empty"><span class="empty-icon">' + icon('clock') + '</span><strong>No recent research run</strong><p>Start a research loop above to see its live status and report here.</p></div></div>';
+  return '<section class="query-section"><h1>Start a Research Loop</h1><p class="section-subtitle">Ask a question. The research loop checks available evidence and reports its limitations.</p><form id="research-form" class="query-form">' +
+    '<label class="query-control"><span class="sr-only">Research question</span>' + icon('search') + '<textarea id="research-query" name="query" aria-describedby="query-error" minlength="12" required placeholder="Ask about a company, market move, or fundamental trend…"></textarea></label>' +
+    '<label class="query-select-wrap"><span class="sr-only">Exchange</span><select class="query-select" id="research-exchange" name="exchange"><option value="NSE">NSE</option><option value="BSE">BSE</option><option value="NSE / BSE">NSE / BSE</option></select></label>' +
     '<button class="button button-primary" type="submit"' + disabled + '>' + buttonText + icon('arrow') + '</button></form>' +
-    '<div class="query-footnote"><span>' + (state.backendAvailable ? 'Runs and watchlist are saved in SQLite. Provider availability is shown in Settings.' : 'Backend is unavailable. Start the local server to run research.') + '</span><span class="query-error" id="query-error" aria-live="polite"></span></div></section>' +
+    '<div class="query-footnote"><span>' + backendMessage + '</span><span class="query-error" id="query-error" aria-live="polite"></span></div></section>' +
     renderProcess(latest) +
     '<section class="overview-grid"><div class="panel"><div class="panel-head"><h2 class="section-title">Recent research runs</h2><button class="button button-quiet" type="button" data-view="runs">View all runs ' + icon('arrow') + '</button></div>' + renderRunTable(runs.slice(0, 4), true) + '</div>' +
-    '<aside class="panel run-panel"><div class="panel-head"><h2 class="section-title">Latest run</h2><span class="panel-head-meta">' + (latest.isDemo ? 'Example' : displayDate(latest)) + '</span></div><div class="panel-content">' +
-    '<div class="run-detail-head"><div><strong>' + (latest.isDemo ? escapeHtml(latest.label) : 'Research request') + '</strong><span>' + escapeHtml(latest.exchange || 'NSE / BSE') + ' · ' + statusText(latest) + '</span></div><span class="run-detail-date">' + (latest.isDemo ? 'No live data' : displayTime(latest)) + '</span></div>' +
-    '<p class="run-question">' + escapeHtml(latest.query) + '</p><div class="iteration-label"><span>Iteration ' + (latest.iterationCount == null ? 1 : latest.iterationCount) + ' of ' + MAX_ITERATIONS + '</span><span>' + (latest.status === 'running' ? 'Research in progress' : latest.isDemo ? 'Example only' : String(latest.status).toUpperCase()) + '</span></div>' +
-    timelineMarkup(latest) + '<button class="button button-primary panel-full-button" type="button" data-open-report="' + escapeHtml(latest.id) + '">Open report ' + icon('arrow') + '</button></div></aside></section>';
+    '<aside class="panel run-panel"><div class="panel-head"><h2 class="section-title">Latest run</h2><span class="panel-head-meta">' + (latest ? (latest.isDemo ? 'Example' : displayDate(latest)) : 'Waiting for a run') + '</span></div>' + latestPanel + '</aside></section>';
 }
 
 function renderRunsPage() {
   const runs = getAllRuns();
   return '<div class="page-head"><div><h1>Research runs</h1><p>Review server-saved research requests, source counts, quality scores, and run traces.</p></div><button class="button button-primary" type="button" data-new-research>' + icon('plus') + ' New research</button></div>' +
     '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Server-saved research runs</strong><p>Examples are marked as demo. Live runs show their provider gaps, source records, and status.</p></div></div>' +
-    '<section class="panel list-panel"><div class="list-toolbar"><div class="toolbar"><label class="search-control">' + icon('search') + '<span class="sr-only">Search runs</span><input type="search" id="run-search" placeholder="Search research questions" /></label><select class="filter-select" id="run-filter" aria-label="Filter runs"><option value="all">All runs</option><option value="completed">Completed</option><option value="limited">Limited</option><option value="failed">Failed</option><option value="demo">Demo only</option></select></div><span class="result-count" id="run-result-count">' + runs.length + ' items</span></div><div id="runs-table">' + renderRunTable(runs, false) + '</div></section>';
+    '<section class="panel list-panel"><div class="list-toolbar"><div class="toolbar"><label class="search-control">' + icon('search') + '<span class="sr-only">Search runs</span><input type="search" id="run-search" placeholder="Search research questions" /></label><select class="filter-select" id="run-filter" aria-label="Filter runs"><option value="all">All runs</option><option value="completed">Completed</option><option value="limited">Limited</option><option value="failed">Failed</option><option value="demo">Demo only</option></select></div><span class="result-count" id="run-result-count" role="status" aria-live="polite">' + runs.length + ' items</span></div><div id="runs-table">' + renderRunTable(runs, false) + '</div></section>';
 }
 
 function renderReportsPage() {
@@ -252,10 +292,10 @@ function renderWatchlist() {
   const rows = state.watchlist.map(function (item, index) {
     return '<tr><td><span class="watchlist-symbol">' + escapeHtml(item.symbol) + '</span></td><td>' + escapeHtml(item.exchange) + '</td><td><span class="status-chip status-demo">Listing not verified</span></td><td><button class="button button-quiet" type="button" data-remove-watch="' + index + '">Remove</button></td></tr>';
   }).join('');
-  const table = state.watchlist.length ? '<div class="table-scroll"><table class="data-table watchlist-table"><thead><tr><th>Symbol</th><th>Exchange</th><th>Listing status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="panel-empty-state watchlist-empty"><span class="empty-icon">' + icon('chart') + '</span><strong>Your watchlist is empty</strong><p>Add a symbol to save it in the server database. Exchange listing and market data are not implied.</p></div>';
+  const table = state.watchlist.length ? '<div class="table-scroll" role="region" aria-label="Watchlist table" tabindex="0"><table class="data-table watchlist-table"><thead><tr><th scope="col">Symbol</th><th scope="col">Exchange</th><th scope="col">Listing status</th><th scope="col"><span class="sr-only">Remove symbol</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="panel-empty-state watchlist-empty"><span class="empty-icon">' + icon('chart') + '</span><strong>Your watchlist is empty</strong><p>Add a symbol to save it in the server database. Exchange listing and market data are not implied.</p></div>';
   return '<div class="page-head"><div><h1>Watchlist</h1><p>Keep research targets in one place. Market data requires a live source connection.</p></div><form class="watchlist-form" id="watchlist-form"><label class="sr-only" for="watch-symbol">Company symbol</label><input id="watch-symbol" name="symbol" maxlength="20" placeholder="Add NSE / BSE symbol" required /><button class="button button-primary" type="submit">' + icon('plus') + ' Add symbol</button></form></div>' +
     '<div class="demo-notice compact page-intro-notice">' + icon('info') + '<div><strong>Watchlist is server-saved</strong><p>Symbols persist in SQLite. Adding a symbol does not verify that it is listed on NSE or BSE.</p></div></div>' +
-    '<section class="panel list-panel"><div class="panel-head"><h2 class="section-title">Saved symbols</h2><span class="panel-head-meta">' + state.watchlist.length + ' item' + (state.watchlist.length === 1 ? '' : 's') + '</span></div>' + table + '</section>';
+    '<section class="panel list-panel"><div class="panel-head"><h2 class="section-title" id="saved-symbols-heading" tabindex="-1">Saved symbols</h2><span class="panel-head-meta">' + state.watchlist.length + ' item' + (state.watchlist.length === 1 ? '' : 's') + '</span></div>' + table + '</section>';
 }
 
 function providerRow(title, key) {
@@ -342,7 +382,7 @@ function renderEvidenceTable(run) {
     return '<tr><td>' + question + '</td><td><strong>' + escapeHtml(item.kind) + '</strong><br />' + escapeHtml(item.claim) + '</td><td>' + source + '</td><td>' + date + '</td><td>NOT SCORED</td></tr>';
   }).join('');
   const empty = '<tr><td class="table-empty" colspan="5">No evidence was extracted from retrieved sources.</td></tr>';
-  return '<div class="report-table"><div class="table-scroll"><table class="data-table"><thead><tr><th>Questions</th><th>Evidence claim</th><th>Source</th><th>Published</th><th>Confidence</th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div></div>';
+  return '<div class="report-table"><div class="table-scroll" role="region" aria-label="Verified evidence table" tabindex="0"><table class="data-table"><thead><tr><th scope="col">Questions</th><th scope="col">Evidence claim</th><th scope="col">Source</th><th scope="col">Published</th><th scope="col">Confidence</th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div></div>';
 }
 
 function renderSourceTable(run) {
@@ -356,7 +396,7 @@ function renderSourceTable(run) {
     return '<tr><td>' + link + '</td><td>' + escapeHtml(source.sourceType.toUpperCase()) + '</td><td>' + escapeHtml(source.publisher) + '</td><td>' + date + '</td><td>' + escapeHtml(questions) + '</td><td>NOT SCORED</td></tr>';
   }).join('');
   const empty = '<tr><td class="table-empty" colspan="6">No sources were checked.</td></tr>';
-  return '<div class="report-table"><div class="table-scroll"><table class="data-table"><thead><tr><th>Source</th><th>Type</th><th>Publisher</th><th>Published</th><th>Used for</th><th>Confidence</th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div></div>';
+  return '<div class="report-table"><div class="table-scroll" role="region" aria-label="Checked sources table" tabindex="0"><table class="data-table"><thead><tr><th scope="col">Source</th><th scope="col">Type</th><th scope="col">Publisher</th><th scope="col">Published</th><th scope="col">Used for</th><th scope="col">Confidence</th></tr></thead><tbody>' + (rows || empty) + '</tbody></table></div></div>';
 }
 
 function renderIterationHistory(run) {
@@ -448,9 +488,26 @@ function renderReport(run) {
     '<div class="report-action-row"><button class="button button-secondary" type="button" data-new-research>Start another query</button></div></aside></div>';
 }
 
-function renderApp() {
+function renderApp(preserveContentState) {
+  const focusElement = preserveContentState && content.contains(document.activeElement) ? document.activeElement : null;
+  const focusId = focusElement && focusElement.id;
+  const focusAction = focusElement && ['data-open-report', 'data-remove-watch'].find(function (attribute) { return focusElement.hasAttribute(attribute); });
+  const focusActionValue = focusAction && focusElement.getAttribute(focusAction);
+  const focusClasses = focusElement ? Array.from(focusElement.classList) : [];
+  const fields = preserveContentState ? Array.from(content.querySelectorAll('input[id], select[id], textarea[id]')).map(function (field) {
+    let selectionStart = null;
+    let selectionEnd = null;
+    try {
+      selectionStart = typeof field.selectionStart === 'number' ? field.selectionStart : null;
+      selectionEnd = typeof field.selectionEnd === 'number' ? field.selectionEnd : null;
+    } catch (error) {}
+    return { id: field.id, value: field.value, selectionStart: selectionStart, selectionEnd: selectionEnd };
+  }) : [];
   document.querySelectorAll('.nav-item[data-view]').forEach(function (item) {
-    item.classList.toggle('is-active', item.dataset.view === state.activeView);
+    const active = item.dataset.view === state.activeView;
+    item.classList.toggle('is-active', active);
+    if (active) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
   });
   document.getElementById('run-count').textContent = String(state.runs.length);
   if (state.activeView === 'report') {
@@ -466,13 +523,33 @@ function renderApp() {
     else if (state.activeView === 'settings') content.innerHTML = renderSettings();
     else content.innerHTML = renderOverview();
   }
+  fields.forEach(function (saved) {
+    const field = document.getElementById(saved.id);
+    if (!field) return;
+    field.value = saved.value;
+    if (saved.selectionStart !== null && typeof field.setSelectionRange === 'function') field.setSelectionRange(saved.selectionStart, saved.selectionEnd);
+  });
+  let nextFocus = focusId ? document.getElementById(focusId) : null;
+  if (!nextFocus && focusAction) {
+    nextFocus = Array.from(content.querySelectorAll('button[' + focusAction + ']')).find(function (element) {
+      return element.getAttribute(focusAction) === focusActionValue && focusClasses.every(function (className) { return element.classList.contains(className); });
+    }) || null;
+  }
+  if (nextFocus && !nextFocus.disabled) nextFocus.focus({ preventScroll: true });
 }
 
 async function apiRequest(url, options) {
-  const response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+  let response;
+  try {
+    response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+  } catch (error) {
+    setBackendStatus(false);
+    throw error;
+  }
   let body = {};
   try { body = await response.json(); } catch (error) { body = {}; }
   if (!response.ok) throw new Error(body.error || ('Request failed with HTTP ' + response.status + '.'));
+  setBackendStatus(true);
   return body;
 }
 
@@ -494,6 +571,9 @@ function handleRunEvent(runId, event) {
   const run = state.runs.find(function (item) { return item.id === runId; });
   if (!run || !event) return;
   if (event.type === 'stage') {
+    const stageNames = { plan: 'Plan', research: 'Research', evidence: 'Research', analysis: 'Research', retry: 'Research', critique: 'Critique', finalize: 'Finalize' };
+    const announcement = document.getElementById('workflow-announcement');
+    if (announcement) announcement.textContent = (stageNames[event.stage] || 'Research') + (event.status ? ' ' + event.status + '.' : ' updated.');
     run.stage = event.stage || run.stage;
     run.iterationCount = Math.max(run.iterationCount || 0, Number(event.iteration) || 0);
     run.trace = run.trace || [];
@@ -512,13 +592,15 @@ function handleRunEvent(runId, event) {
       run.gaps = event.criticalGaps || [];
     }
   } else if (event.type === 'final') {
+    const announcement = document.getElementById('workflow-announcement');
+    if (announcement) announcement.textContent = 'Research run ' + String(event.status || 'finished') + '.';
     run.status = event.status || 'limited';
     run.stage = 'finalize';
     run.finalScore = event.score == null ? null : event.score;
     run.metrics = event.metrics || run.metrics;
     state.isRunning = state.runs.some(function (item) { return item.status === 'running'; });
   }
-  renderApp();
+  renderApp(true);
 }
 
 function connectRunEvents(run) {
@@ -553,7 +635,8 @@ async function startResearch(query, exchange) {
     return;
   }
   state.isRunning = true;
-  renderApp();
+  renderApp(true);
+  document.getElementById('research-query')?.focus({ preventScroll: true });
   try {
     const result = await apiRequest('/api/research/run', {
       method: 'POST',
@@ -565,11 +648,12 @@ async function startResearch(query, exchange) {
     state.selectedRunId = run.id;
     state.selectedRunDetail = run;
     showToast('Research request accepted by the server.');
-    renderApp();
+    renderApp(true);
+    document.getElementById('research-query')?.focus({ preventScroll: true });
     connectRunEvents(run);
   } catch (error) {
     state.isRunning = state.runs.some(function (item) { return item.status === 'running'; });
-    renderApp();
+    renderApp(true);
     const errorNode = document.getElementById('query-error');
     if (errorNode) errorNode.textContent = error.message;
     showToast(error.message);
@@ -704,21 +788,31 @@ document.addEventListener('click', function (event) {
   }
   const removeButton = event.target.closest('[data-remove-watch]');
   if (removeButton) {
-    const item = state.watchlist[Number(removeButton.dataset.removeWatch)];
+    const removeIndex = Number(removeButton.dataset.removeWatch);
+    const item = state.watchlist[removeIndex];
     if (!item) return;
     apiRequest('/api/watchlist/' + encodeURIComponent(item.symbol), { method: 'DELETE' })
       .then(function () {
         state.watchlist = state.watchlist.filter(function (saved) { return saved.symbol !== item.symbol; });
         renderApp();
+        const nextIndex = Math.min(removeIndex, state.watchlist.length - 1);
+        const nextButton = nextIndex >= 0 ? content.querySelector('[data-remove-watch="' + nextIndex + '"]') : null;
+        (nextButton || document.getElementById('saved-symbols-heading'))?.focus({ preventScroll: true });
         showToast('Symbol removed from the server watchlist.');
       })
       .catch(function (error) { showToast(error.message); });
     return;
   }
   if (event.target.closest('#mobile-menu')) {
-    sidebar.classList.toggle('is-open');
-    backdrop.classList.toggle('is-visible');
-    mobileMenu.setAttribute('aria-expanded', sidebar.classList.contains('is-open') ? 'true' : 'false');
+    if (sidebar.classList.contains('is-open')) {
+      closeMobileNav();
+    } else {
+      sidebar.classList.add('is-open');
+      backdrop.classList.add('is-visible');
+      mobileMenu.setAttribute('aria-expanded', 'true');
+      mobileMenu.setAttribute('aria-label', 'Close navigation');
+      sidebar.querySelector('.brand').focus();
+    }
     return;
   }
   if (event.target.closest('#mobile-backdrop')) closeMobileNav();
@@ -756,6 +850,7 @@ document.addEventListener('submit', function (event) {
     }).then(function (result) {
       state.watchlist.unshift({ symbol: result.item.symbol, exchange: result.item.exchange });
       renderApp();
+      document.getElementById('watch-symbol')?.focus({ preventScroll: true });
       showToast('Symbol saved in SQLite. Exchange listing remains unverified.');
     }).catch(function (error) { showToast(error.message); });
   }
@@ -768,7 +863,23 @@ document.addEventListener('change', function (event) {
   if (event.target.id === 'run-filter') filterRunRows();
 });
 document.addEventListener('keydown', function (event) {
-  if (event.key === 'Escape') closeMobileNav();
+  if (event.key === 'Escape' && sidebar.classList.contains('is-open')) {
+    closeMobileNav();
+    return;
+  }
+  if (event.key === 'Tab' && sidebar.classList.contains('is-open')) {
+    const focusable = sidebar.querySelectorAll('a[href], button:not([disabled])');
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && (document.activeElement === first || !sidebar.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !sidebar.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 });
 
 async function bootstrap() {
@@ -782,7 +893,7 @@ async function bootstrap() {
     state.runs = values[0].runs || [];
     state.watchlist = values[1].items || [];
     state.providerHealth = values[2] || {};
-    state.backendAvailable = true;
+    setBackendStatus(true);
     state.isRunning = state.runs.some(function (run) { return run.status === 'running'; });
     const active = state.runs.find(function (run) { return run.status === 'running'; });
     const latest = active || state.runs[0];
@@ -795,8 +906,8 @@ async function bootstrap() {
       }
     }
   } catch (error) {
-    state.backendAvailable = false;
     state.providerHealth = {};
+    setBackendStatus(false);
   }
   renderApp();
 }

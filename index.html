@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#090b12" />
+    <meta name="theme-color" content="#080d16" />
     <meta name="description" content="Research Loop AI — autonomous, evidence-driven research for continuous discovery, analysis, verification, and monitoring." />
     <meta property="og:title" content="Research Loop AI" />
     <meta property="og:description" content="Autonomous AI research platform for continuous discovery, analysis, verification, monitoring, and actionable intelligence." />
@@ -11,21 +11,21 @@
     <link rel="icon" type="image/svg+xml" href="assets/research-loop-ai-logo.svg" />
     <link rel="apple-touch-icon" href="assets/research-loop-ai-logo.svg" />
     <title>Research Loop AI — Research workspace</title>
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="styles-3d.css" />
-    <script src="assets/neural-graph-3d.js" defer></script>
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="styles.css?v=20261111-2" />
+    <link rel="stylesheet" href="styles-3d.css?v=20261111-2" />
+    <script src="app.js?v=20261111-2" defer></script>
   </head>
   <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <div class="app-shell">
-      <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <aside class="sidebar" id="sidebar">
         <a class="brand" href="#overview" data-view="overview" aria-label="ResearchLoop AI home">
           <span class="brand-mark" aria-hidden="true"><img src="assets/research-loop-ai-logo.svg" alt="" /></span>
           <span class="brand-name">ResearchLoop <span>AI</span></span>
         </a>
 
         <div class="sidebar-label">WORKSPACE</div>
-        <nav class="primary-nav">
+        <nav class="primary-nav" aria-label="Main navigation">
           <button class="nav-item is-active" type="button" data-view="overview">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.5 10 8.5-7 8.5 7v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1V10Z"/><path d="M9 20.5v-7h6v7"/></svg><span>Overview</span>
           </button>
@@ -46,17 +46,16 @@
           </button>
           <div class="sidebar-user">
             <div class="avatar">RL</div>
-            <div class="user-copy"><strong>Research workspace</strong><span>SQLite · local server</span></div>
-            <span class="demo-dot" title="Local server workspace"></span>
+            <div class="user-copy"><strong>Research workspace</strong><span id="sidebar-server-status">Checking backend…</span></div>
+            <span class="demo-dot" id="sidebar-server-dot" data-status="checking" aria-hidden="true"></span>
           </div>
         </div>
       </aside>
 
       <div class="mobile-backdrop" id="mobile-backdrop"></div>
-      <main class="main-area">
-        <div class="neural-nexus-3d-container" id="neural-nexus-3d"></div>
+      <main class="main-area" id="main-content" tabindex="-1">
         <header class="topbar">
-          <button class="mobile-menu" id="mobile-menu" type="button" aria-label="Open navigation" aria-expanded="false">
+          <button class="mobile-menu" id="mobile-menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
           <a class="mobile-brand" href="#overview" data-view="overview" aria-label="ResearchLoop AI home">
@@ -65,14 +64,15 @@
           </a>
           <div class="topbar-title" id="topbar-title">Research workspace</div>
           <div class="topbar-actions">
-            <span class="demo-badge"><span></span> Local backend</span>
-            <button class="workspace-button" type="button" aria-label="Current workspace">
+            <span class="demo-badge" id="backend-status" data-status="checking" aria-live="polite"><span aria-hidden="true"></span><span id="backend-status-label">Checking backend…</span></span>
+            <button class="workspace-button" type="button" aria-label="Research workspace">
               <span class="avatar avatar-small">RL</span><span>Research workspace</span>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
             </button>
           </div>
         </header>
         <div class="content" id="app-content" tabindex="-1"></div>
+        <div class="sr-only" id="workflow-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
         <footer class="app-footer"><span>ResearchLoop AI</span><span>Server-saved runs · live providers may be unavailable</span></footer>
       </main>
     </div>
