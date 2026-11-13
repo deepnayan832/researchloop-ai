@@ -629,3 +629,17 @@ a:focus-visible, .content:focus-visible, .table-scroll:focus-visible,
   .panel-content { padding: 15px 13px; }
   .panel-table-foot { font-size: 10px; }
 }
+
+/* Liquid Glass 2.0 & Tactile Physics System */
+.panel, .card, .summary-card, .sidebar, .query-section {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.12), 0 12px 32px rgba(20, 36, 59, 0.06);
+}
+button {
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), filter 0.16s ease !important;
+}
+button:active {
+  transform: scale(0.97) !important;
+}
+
